@@ -264,7 +264,7 @@ export default function AuthPage() {
 
   return (
     <Suspense fallback={<LinesLoader />}>
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-50 to-white dark:from-neutral-950 dark:to-neutral-400/10 p-4">
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-50 to-white dark:from-neutral-950 dark:to-neutral-400/10 p-4">
         <Card className="w-full max-w-md pb-0 overflow-clip">
           <CardHeader className="flex-row flex gap-4 items-center justify-between">
             <section className="grid auto-rows-min grid-rows-[auto_auto] items-start gap-1">
@@ -324,7 +324,14 @@ export default function AuthPage() {
                           <FormLabel className='flex items-center justify-between'>
                             <span>Password</span>
                             {/* Forgot password link */}
-                            <Link href="/u/forgot-password" prefetch={false} className='text-muted-foreground text-xs hover:underline'>Forgot?</Link>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button type='button' variant="link" size="none" className="text-xs hover:underline text-muted-foreground">Forgot?</Button>
+                              </TooltipTrigger>
+                              <TooltipContent className='w-42'>
+                                Due to the scope of the application, simply contact one of the admins to reset your account, or make a new account
+                              </TooltipContent>
+                            </Tooltip>
                           </FormLabel>
                           <FormControl>
                             <div className="relative">
@@ -361,7 +368,6 @@ export default function AuthPage() {
               </Form>
             </TabsContent>
 
-            {/* Sign Up Form */}
             <TabsContent value="signup">
               <Form {...signUpForm}>
                 <form onSubmit={signUpForm.handleSubmit(handleSignUp)} className="space-y-6">
@@ -373,14 +379,12 @@ export default function AuthPage() {
                       </div>
                     )}
 
-                    {/* Email Field */}
                     <FormField
                       control={signUpForm.control}
                       name="email"
                       render={({ field }) => (
                         <FormItem>
                           <header className='px-1 flex items-center gap-2 font-medium'>
-                            {/* Email Info Tooltip */}
                             <>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -407,7 +411,6 @@ export default function AuthPage() {
                         </FormItem>
                       )}
                     />
-                    {/* Username Field */}
                     <FormField
                       control={signUpForm.control}
                       name="username"
@@ -415,7 +418,6 @@ export default function AuthPage() {
                         <FormItem>
                           <FormLabel>
                             <header className='px-1 flex items-center gap-2 font-medium'>
-                              {/* Username Info Tooltip */}
                               <>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -443,24 +445,6 @@ export default function AuthPage() {
                         </FormItem>
                       )}
                     />
-                    {/* Display Name Field (Optional based on your Zod schema) */}
-                    {/*
-                      <FormField
-                      control={signUpForm.control}
-                      name="displayName"
-                      render={({ field }) => (
-                        <FormItem>
-                           <FormLabel>Display Name (Optional)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Your Name" {...field} tabIndex={1} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                     */}
-
-                    {/* Password Field */}
                     <FormField
                       control={signUpForm.control}
                       name="password"
@@ -478,7 +462,6 @@ export default function AuthPage() {
                                 {...field}
                                 tabIndex={1}
                               />
-                              {/* Password visibility toggle button */}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -491,12 +474,11 @@ export default function AuthPage() {
                               </Button>
                             </div>
                           </FormControl>
-                          {/* Password strength indicator */}
                           <div className="my-1 flex w-full gap-1 h-2">
-                            {[0, 1, 2, 3, 4].map((level) => ( // Render 5 bars for 0-4 strength index
+                            {[0, 1, 2, 3, 4].map((level) => (
                               <div
                                 key={level}
-                                className={`h-full flex-1 rounded-full transition-colors duration-300 ${level < strength ? strengthColors[strength] : 'bg-gray-300'}`} // Highlight bars up to current strength
+                                className={`h-full flex-1 rounded-full transition-colors duration-300 ${level < strength ? strengthColors[strength] : 'bg-gray-300'}`}
                               ></div>
                             ))}
                           </div>
@@ -530,12 +512,11 @@ export default function AuthPage() {
 
           </Tabs>
 
-          {/* Footer with switch links */}
           <CardFooter className="flex flex-col items-center gap-1 bg-muted border-t-2 py-3">
             <p className="text-center text-sm text-muted-foreground">
               {activeTab === 'signin' ? (
                 <>
-                  Don't have an account?{' '}
+                  Don&apos;t have an account?{' '}
                   <button onClick={() => setActiveTab('signup')} type="button" className="font-medium text-primary hover:underline">
                     Sign Up
                   </button>
@@ -549,7 +530,7 @@ export default function AuthPage() {
                 </>
               )}
             </p>
-            <p className="text-center text-sm text-muted-foreground flex items-center space-x-1"> {/* Use flex-center-2 style */}
+            <p className="text-center text-sm text-muted-foreground flex-center-2">
               <MailCheckIcon className="h-4 w-4" />
               <span>Need help?</span>{' '}
               <Link href="/contact" className="font-medium text-primary hover:underline">
@@ -558,7 +539,7 @@ export default function AuthPage() {
             </p>
           </CardFooter>
         </Card>
-      </div>
+      </main>
     </Suspense>
   );
 }

@@ -73,7 +73,7 @@ export async function middleware(req: NextRequest) {
     if (isProtectedPath) {
       console.log(`${LOG_CTX} Unauthenticated user attempting to access protected route "${pathname}". Redirecting to sign-in.`);
       const signInUrl = new URL(AUTH_PAGE_PATH, req.url);
-      signInUrl.searchParams.set('callbackUrl', req.nextUrl.pathname + req.nextUrl.search);
+      signInUrl.searchParams.set('next', req.nextUrl.pathname + req.nextUrl.search);
       signInUrl.searchParams.set('mode', 'signin');
       return NextResponse.redirect(signInUrl);
     }
