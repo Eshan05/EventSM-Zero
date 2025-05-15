@@ -1,5 +1,5 @@
 import { drizzleZeroConfig } from 'drizzle-zero';
-import * as drizzleSchema from '@/db/schema';
+import * as drizzleSchema from './db/schema.ts';
 
 export default drizzleZeroConfig(drizzleSchema, {
   tables: {
@@ -39,4 +39,5 @@ export default drizzleZeroConfig(drizzleSchema, {
     // Define many-to-many relationships if any are directly represented in Zero
   },
   casing: 'camelCase',
+  debug: false,
 });

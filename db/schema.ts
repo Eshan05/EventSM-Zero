@@ -135,7 +135,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
   messages: many(messages), // A user can have many messages
   blockedWordsAdded: many(blockedWords, { relationName: 'blockedWordsAddedByAdmin' }), // Admin who added blocked words
-  messagesDeletedBy: many(messages, { relationName: 'messagesDeletedByAdmin' })
+  messagesDeletedBy: many(messages, { relationName: 'messageDeletion' })
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -159,6 +159,11 @@ export const messagesRelations = relations(messages, ({ one, many }) => ({
   }),
   replies: many(messages, { // For all messages that reply to this one
     relationName: 'repliesToParent',
+  }),
+  deletedBy: one(users, {
+    relationName: 'messageDeletion', // Use the SAME name as the 'many' side on users
+    fields: [messages.deletedByUserId],
+    references: [users.id],
   }),
 }));
 
