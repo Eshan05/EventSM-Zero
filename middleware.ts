@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getClientIP } from '@/utils/client-ip';
-import { auth } from '@/lib/auth';
+import { auth } from '@/lib/auth.config';
 
 const LOG_PREFIX = '[Middleware]';
 
