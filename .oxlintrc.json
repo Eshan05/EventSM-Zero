@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "no-unused-vars": "off"
+  },
+  "plugins": [
+    "react-perf",
+    "react",
+    "unicorn",
+    "oxc",
+    "nextjs",
+    "typescript"
+  ]
+}

@@ -1,0 +1,8 @@
+onlyBuiltDependencies:
+  - '@rocicorp/zero-sqlite3'
+  - '@tailwindcss/oxide'
+  - esbuild
+  - msgpackr-extract
+  - protobufjs
+  - sharp
+  - unrs-resolver
