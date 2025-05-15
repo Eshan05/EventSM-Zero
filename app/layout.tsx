@@ -3,8 +3,6 @@ import { ThemeProvider } from 'next-themes'
 import { Geist, JetBrains_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import './globals.css'
-import { SessionProvider } from "next-auth/react";
-import { auth } from '@/lib/auth'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,11 +30,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} antialiased font-[family-name:var(--font-geist-sans)]`}
+        className={`${geistSans.variable} antialiased ${jetBrainsMono.variable} `}
       >
         <ThemeProvider
           attribute='class'
@@ -44,7 +41,9 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SessionProvider session={session}>{children}</SessionProvider>
+          {/* SessionProvider is for client-side use only and when using Next.js App Router (app/) you should prefer the auth() export. */}
+          {/* <SessionProvider>{children}</SessionProvider> */}
+          {children}
           <Toaster />
         </ThemeProvider>
       </body>
