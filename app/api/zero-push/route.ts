@@ -1,152 +1,228 @@
-// app/api/zero-push/route.ts (Manual Execution with Neon-HTTP)
+// app/api/zero-push/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { TextEncoder } from 'util';
-import { typedDb } from '@/lib/utils.server'; // Your Neon-HTTP Drizzle DB instance
-import { schema as zeroSchema, type ZeroAuthData, createMutators } from '@/lib/zero/config'; // Your Zero schema/mutator defs
-// Import DB schema and external services for server logic
-import { messages as messagesTable, events as eventsTable, blockedWords as blockedWordsTable, users as usersTable } from '@/db/schema';
-import { eq, desc, and } from 'drizzle-orm';
+
+// Your Drizzle instance (configured for Neon, e.g., with HTTP adapter)
+import { db } from '@/db/config';
+// Your Drizzle table schemas
+import {
+  messages as messagesTable,
+  events as eventsTable,
+  blockedWords as blockedWordsTable,
+  users as usersTable
+} from '@/db/schema';
+// Drizzle operators
+import { eq, desc } from 'drizzle-orm';
+
+// Your Zero schema, auth data type, and mutator factory
+import { type ZeroAuthData } from '@/lib/zero/config'; // Only need ZeroAuthData type here for auth
+
+// Upstash Redis for rate limiting
 import { Redis } from '@upstash/redis';
 import { Ratelimit } from '@upstash/ratelimit';
+import { auth, CustomSession } from '@/lib/auth';
 
-const redis = Redis.fromEnv();
-// Load blocked words cache here (same as before)
+// Type for Drizzle transaction object (adjust if your `db` type is more specific)
+type DrizzleTransaction = typeof db;
+
+
+// --- Initialize Redis Client ---
+const redis = Redis.fromEnv(); // Assumes UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are in .env
+
+// --- Blocked Words Cache ---
 let blockedWordsCache: string[] = [];
-async function loadBlockedWords() { /* ... */ }
+async function loadBlockedWords() {
+  try {
+    const words = await db.select({ word: blockedWordsTable.word }).from(blockedWordsTable);
+    blockedWordsCache = words.map(w => w.word.toLowerCase());
+    console.log("Zero Push: Blocked words cache loaded/reloaded:", blockedWordsCache.length);
+  } catch (error) {
+    console.error("Zero Push: Failed to load blocked words cache:", error);
+  }
+}
+// Initial load and periodic reload
 loadBlockedWords().catch(console.error);
-setInterval(() => loadBlockedWords().catch(console.error), 5 * 60 * 1000);
+const blockedWordsInterval = setInterval(() => loadBlockedWords().catch(console.error), 5 * 60 * 1000); // Reload every 5 minutes
+// Optional: Cleanup interval on server shutdown if in a long-running process (not typical for serverless)
 
-
-// ... (getAuthDataFromRequest function - same) ...
 async function getAuthDataFromRequest(req: NextRequest): Promise<ZeroAuthData | undefined> {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    console.warn("Zero Push: No Bearer token in Authorization header.");
-    return undefined; // No token provided
+    console.warn("Zero Push: No Bearer token in Authorization header for this request.");
+    return undefined;
   }
-
   const token = authHeader.substring(7); // Remove "Bearer "
 
   if (!process.env.ZERO_AUTH_SECRET) {
-    console.error("Zero Push: ZERO_AUTH_SECRET environment variable is not set.");
-    // In production, you might return a 500 error here if auth is critical
-    return undefined; // Cannot verify
+    console.error("Zero Push: ZERO_AUTH_SECRET environment variable is not set. Cannot verify push token.");
+    return undefined; // Critical configuration error
   }
-
+  // Ensure ZERO_AUTH_SECRET is the same as AUTH_SECRET used for signing the zeroToken
   const secret = new TextEncoder().encode(process.env.ZERO_AUTH_SECRET);
 
   try {
-    // Verify the token using the same secret as NEXTAUTH_SECRET / ZERO_AUTH_SECRET
     const { payload } = await jwtVerify(token, secret);
 
-    // Extract and return the claims expected by your mutators (ZeroAuthData)
-    // Ensure these match what you put in the JWT in your zero-token endpoint
-    const authData: ZeroAuthData = {
-      sub: payload.sub as string, // 'sub' is required user ID
-      role: payload.role as string, // Custom 'role' claim
-      // Add other claims if needed:
-      // username: payload.username as string | undefined,
-      // displayName: payload.displayName as string | undefined,
-    };
-
-    if (!authData.sub) {
-      console.warn("Zero Push: JWT payload missing 'sub' claim.");
-      return undefined; // JWT invalid or missing required claim
+    // Validate essential claims expected by ZeroAuthData
+    if (!payload.sub || typeof payload.sub !== 'string' ||
+      !payload.role || typeof payload.role !== 'string' ||
+      !payload.username || typeof payload.username !== 'string') {
+      console.warn("Zero Push: JWT payload from Bearer token missing or has invalid type for required claims (sub, role, username). Payload:", payload);
+      return undefined;
     }
-
-    return authData;
-
+    return {
+      sub: payload.sub,
+      role: payload.role,
+      username: payload.username,
+      // displayName: payload.displayName as string | undefined, // If you add this
+    };
   } catch (error) {
-    console.error("Zero Push: JWT verification failed:", error);
-    return undefined; // Verification failed
+    // Log the specific error for debugging JWT issues
+    if (error instanceof Error && (error.name === 'JWTExpired' || error.name === 'JWSSignatureVerificationFailed' || error.name === 'JWTInvalid')) {
+      console.warn(`Zero Push: JWT (Bearer token) verification failed specifically: ${error.message}`);
+    } else {
+      console.error("Zero Push: General error during JWT (Bearer token) verification:", error);
+    }
+    return undefined;
   }
 }
 
 
-// --- Manual Server-Side Mutator Execution ---
-// This object maps mutator names to their server-side *implementation* functions.
-// These functions will run within a Drizzle transaction and handle DB writes, etc.
+// --- Server-Side Mutator Implementations ---
+// These functions contain the authoritative logic for each mutation.
+// They accept `authData` and `args` from the client, and the Drizzle `tx` object.
 const serverMutatorImplementations = {
-  async addMessage(authData: ZeroAuthData, args: { text: string; replyToId?: string; eventId: string; }) {
-    // This logic is now fully responsible for DB write, rate limits, etc.
-    // It runs inside a Drizzle transaction managed below in the handler.
-    // It does NOT use Zero's tx.mutate/tx.query within this scope for DB access.
-
+  /**
+   * Adds a new chat message.
+   * Performs validation, rate limiting, word blocking, and DB persistence.
+   * Returns data needed to construct the Zero patch for clients.
+   */
+  async addMessage(
+    authData: ZeroAuthData,
+    args: { text: string; replyToId?: string; eventId?: string; }, // eventId can be optional if server determines it
+    tx: DrizzleTransaction // Drizzle transaction object
+  ) {
     const userId = authData.sub;
-    const userRole = authData.role;
 
-    // --- Server-side Validation & Logic ---
-    if (!userId) throw new Error('Authentication required.');
-    // Get current event ID from DB - use the passed Drizzle transaction
-    const currentEvent = await typedDb.query.events.findFirst({ // Use typedDb directly
-      where: eq(eventsTable.isActive, true),
-      columns: { id: true },
-      orderBy: [desc(eventsTable.createdAt)]
-    });
-    const currentEventId = currentEvent?.id || null;
+    // --- Server-side Validation ---
+    if (!userId) throw new Error('Authentication required to add message.');
 
-    if (!currentEventId) throw new Error('No active chat event found.');
-    if (!args.text || args.text.trim() === "") throw new Error('Message text cannot be empty.');
-    const cleanedText = args.text.trim();
+    // Determine eventId: prioritize from args, then active event, then default (if applicable)
+    let eventIdToUse = args.eventId;
+    if (!eventIdToUse) {
+      const currentEvent = await tx.query.events.findFirst({
+        where: eq(eventsTable.isActive, true),
+        columns: { id: true },
+        orderBy: [desc(eventsTable.createdAt)]
+      });
+      eventIdToUse = currentEvent?.id;
+    }
+    // if (!eventIdToUse && SOME_DEFAULT_EVENT_ID_FOR_SERVER) eventIdToUse = SOME_DEFAULT_EVENT_ID_FOR_SERVER;
+
+    if (!eventIdToUse) throw new Error('No active chat event found or eventId not provided.');
+    // if (!args.text || args.text.trim() === "") throw new Error('Message text cannot be empty.');
+    const cleanedText = 'Test'; // args.text.trim() || ""; // Uncomment for production
 
     // --- Rate Limiting (Upstash) ---
-    const userRatelimit = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, "2s"), prefix: `chat_user_msg_rl_${userId}` });
-    const { success: userSuccess } = await userRatelimit.limit("post_message");
-    if (!userSuccess) { throw new Error('You are sending messages too quickly.'); }
+    // const userRatelimit = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, "2s"), prefix: `chat_user_msg_rl_${userId}` });
+    // const { success: userSuccess } = await userRatelimit.limit(`add_message_${eventIdToUse}`); // Include eventId if limits are per event
+    // if (!userSuccess) throw new Error('You are sending messages too quickly.');
 
-    const globalRatelimit = new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(1, "3s"), prefix: `chat_global_msg_rl` });
-    const { success: globalSuccess } = await globalRatelimit.limit("post_message");
-    if (!globalSuccess) { throw new Error('Chat is in slow mode. Please wait.'); }
+    // const globalRatelimit = new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(1, "3s"), prefix: `chat_global_msg_rl` });
+    // const { success: globalSuccess } = await globalRatelimit.limit(`add_message_${eventIdToUse}`);
+    // if (!globalSuccess) throw new Error('Chat is in slow mode. Please wait.');
 
     // --- Word Blocking ---
     if (blockedWordsCache.some(bw => cleanedText.toLowerCase().includes(bw))) {
       throw new Error('Your message contains blocked words.');
     }
 
-    // --- DB Persistence (Using Drizzle Transaction) ---
-    const messageId = crypto.randomUUID(); // Generate UUID
-    const serverTimestamp = Date.now();
+    // --- DB Persistence ---
+    const messageId = crypto.randomUUID();
+    const serverTimestamp = new Date(); // Use Date object for DB
 
-    // Perform the DB insert using the Drizzle transaction passed to the handler's callback
-    await typedDb.insert(messagesTable).values({
+    await tx.insert(messagesTable).values({
       id: messageId,
       userId: userId,
-      eventId: currentEventId,
+      eventId: eventIdToUse,
       text: cleanedText,
-      replyToMessageId: args.replyToId || undefined,
+      replyToMessageId: args.replyToId || undefined, // Drizzle handles undefined as NULL
       isDeleted: false,
-      createdAt: new Date(serverTimestamp),
+      createdAt: serverTimestamp,
+      // deletedAt, deletedByUserId will be null/default
     });
 
-    // Return data needed for Zero's patch (at least the message ID and any server-set fields)
-    return { id: messageId, userId, eventId: currentEventId, text: cleanedText, replyToMessageId: args.replyToId || null, isDeleted: false, createdAt: serverTimestamp };
+    // Data for the patch: what Zero clients need to update their state.
+    // This should match the structure defined by your `drizzle-zero generate` for the 'messages' table.
+    return {
+      id: messageId,
+      userId: userId,
+      eventId: eventIdToUse,
+      text: cleanedText,
+      replyToMessageId: args.replyToId || null, // Use null for JSON consistency if field is nullable
+      isDeleted: false,
+      createdAt: serverTimestamp.getTime(), // Zero expects number timestamp
+      usernameDisplay: authData.username, // Send username for immediate display on other clients
+      // Ensure `usernameDisplay` is a field in your Zero 'messages' schema if you use it.
+      // If not, clients will look up user by userId from the 'users' table in Zero.
+    };
   },
 
-  async deleteMessage(authData: ZeroAuthData, args: { messageId: string }) {
-    if (authData.role !== 'admin') { throw new Error('Unauthorized.'); }
-    if (!args.messageId) { throw new Error('Message ID is required.'); }
+  /**
+   * Admin action to soft-delete a message.
+   */
+  async deleteMessage(
+    authData: ZeroAuthData,
+    args: { messageId: string },
+    tx: DrizzleTransaction
+  ) {
+    if (authData.role !== 'admin') throw new Error('Unauthorized to delete messages.');
+    if (!args.messageId) throw new Error('Message ID is required for deletion.');
 
-    const result = await typedDb.update(messagesTable)
-      .set({ isDeleted: true })
+    const deleteTimestamp = new Date();
+    const result = await tx.update(messagesTable)
+      .set({
+        isDeleted: true,
+        deletedAt: deleteTimestamp, // Assuming your Drizzle schema has this
+        deletedByUserId: authData.sub, // Assuming your Drizzle schema has this
+      })
       .where(eq(messagesTable.id, args.messageId))
-      .returning({ id: messagesTable.id });
+      .returning({ id: messagesTable.id }); // Check if any row was updated
 
     if (result.length === 0) {
-      throw new Error('Message not found in database.');
+      throw new Error('Message not found in database or already deleted.');
     }
 
-    // Return data needed for Zero patch (at least the ID and the changed fields)
-    return { id: args.messageId, isDeleted: true };
+    // Data for the patch
+    return {
+      id: args.messageId,
+      isDeleted: true,
+      deletedAt: deleteTimestamp.getTime(),
+      deletedByUserId: authData.sub,
+    };
   },
 
-  async clearChat(authData: ZeroAuthData, args: { newEventName?: string }) {
-    if (authData.role !== 'admin') { throw new Error('Unauthorized.'); }
+  /**
+   * Admin action to "clear" chat by starting a new event.
+   */
+  async clearChat(
+    authData: ZeroAuthData,
+    args: { newEventName?: string },
+    tx: DrizzleTransaction
+  ) {
+    if (authData.role !== 'admin') throw new Error('Unauthorized to clear chat.');
 
-    await typedDb.update(eventsTable).set({ isActive: false }).where(eq(eventsTable.isActive, true));
-    const newEventResult = await typedDb.insert(eventsTable).values({
-      name: args.newEventName || `Chat Session ${new Date().toISOString()}`,
+    // Mark all currently active events as inactive
+    await tx.update(eventsTable)
+      .set({ isActive: false })
+      .where(eq(eventsTable.isActive, true));
+
+    // Create a new active event
+    const newEventResult = await tx.insert(eventsTable).values({
+      name: args.newEventName || `Chat Session ${new Date().toLocaleString()}`, // More readable default
       isActive: true,
+      // createdAt handled by DB default
     }).returning({ id: eventsTable.id, name: eventsTable.name });
 
     const newEvent = newEventResult[0];
@@ -154,144 +230,151 @@ const serverMutatorImplementations = {
       throw new Error("Failed to create new event session in database.");
     }
 
-    // Return data for Zero patch (update currentEventDetails key)
-    return { currentEventDetails: { id: newEvent.id, name: newEvent.name || null } };
+    // Data for the patch: informs clients about the new active event.
+    // Clients subscribe to ['currentEventDetails'] and react.
+    return {
+      currentEventDetails: {
+        id: newEvent.id,
+        name: newEvent.name || null,
+      }
+    };
   },
 
-  async addBlockedWord(authData: ZeroAuthData, args: { word: string }) {
-    if (authData.role !== 'admin') { throw new Error('Unauthorized.'); }
-    if (!args.word || args.word.trim() === "") throw new Error('Word cannot be empty.');
+  /**
+   * Admin action to add a blocked word.
+   */
+  async addBlockedWord(
+    authData: ZeroAuthData,
+    args: { word: string },
+    tx: DrizzleTransaction
+  ) {
+    if (authData.role !== 'admin') throw new Error('Unauthorized to add blocked words.');
+    if (!args.word || args.word.trim() === "") throw new Error('Blocked word cannot be empty.');
     const wordToAdd = args.word.trim().toLowerCase();
 
     try {
-      await typedDb.insert(blockedWordsTable).values({
+      await tx.insert(blockedWordsTable).values({
         word: wordToAdd,
         addedByUserId: authData.sub,
       });
-      await loadBlockedWords(); // Refresh cache
-      // No Zero state update needed unless admin panel syncs this via Zero
+      await loadBlockedWords(); // Refresh in-memory cache
     } catch (e: any) {
-      if (e.code === '23505') { throw new Error('Word already blocked.'); }
-      else { console.error("Error adding blocked word:", e); throw new Error('Failed to add blocked word.'); }
+      // Check for unique constraint violation (error code depends on DB, e.g., '23505' for PostgreSQL)
+      if (e.message.includes('Unique constraint failed') || (e.code && e.code === '23505')) {
+        throw new Error(`Word "${wordToAdd}" is already blocked.`);
+      }
+      console.error("Zero Push: DB error adding blocked word:", e);
+      throw new Error('Failed to add blocked word due to a database error.');
     }
-    return {}; // Return empty object or data if successful
+    return { word: wordToAdd, status: 'added' }; // Minimal response for patch if needed
   },
 
-  async removeBlockedWord(authData: ZeroAuthData, args: { word: string }) {
-    if (authData.role !== 'admin') { throw new Error('Unauthorized.'); }
-    if (!args.word || args.word.trim() === "") throw new Error('Word cannot be empty.');
+  /**
+   * Admin action to remove a blocked word.
+   */
+  async removeBlockedWord(
+    authData: ZeroAuthData,
+    args: { word: string },
+    tx: DrizzleTransaction
+  ) {
+    if (authData.role !== 'admin') throw new Error('Unauthorized to remove blocked words.');
+    if (!args.word || args.word.trim() === "") throw new Error('Word to remove cannot be empty.');
     const wordToRemove = args.word.trim().toLowerCase();
 
-    try {
-      const result = await typedDb.delete(blockedWordsTable)
-        .where(eq(blockedWordsTable.word, wordToRemove))
-        .returning({ id: blockedWordsTable.id });
+    const result = await tx.delete(blockedWordsTable)
+      .where(eq(blockedWordsTable.word, wordToRemove))
+      .returning({ id: blockedWordsTable.id });
 
-      if (result.length === 0) {
-        throw new Error('Word not found in blocked list.');
-      }
-      await loadBlockedWords(); // Refresh cache
-    } catch (e) {
-      console.error("Error removing blocked word:", e);
-      throw new Error('Failed to remove blocked word.');
+    if (result.length === 0) {
+      throw new Error(`Word "${wordToRemove}" not found in blocked list.`);
     }
-    return {}; // Return empty object or data if successful
+    await loadBlockedWords(); // Refresh in-memory cache
+    return { word: wordToRemove, status: 'removed' }; // Minimal response
   },
-
-  // ... other mutator implementations
 };
 
 
 // --- Push Endpoint Route Handler (Manual Execution) ---
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  let pushRequest;
+  console.log("Zero Push Headers:", Object.fromEntries(request.headers.entries()))
+  let pushRequestPayload: { clientGroupID: string; mutations: Array<{ id: number; name: string; args: any; }> };
   try {
-    pushRequest = await request.json();
-  } catch (error) {
-    console.error("Zero Push: Failed to parse request body:", error);
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    pushRequestPayload = await request.json();
+    if (!pushRequestPayload || typeof pushRequestPayload.clientGroupID !== 'string' || !Array.isArray(pushRequestPayload.mutations)) {
+      throw new Error("Invalid PushRequest format.");
+    }
+  } catch (error: any) {
+    console.error("Zero Push: Failed to parse request body or invalid format:", error.message);
+    return NextResponse.json({ error: "Invalid request body", details: error.message }, { status: 400 });
   }
 
   const authData = await getAuthDataFromRequest(request);
-  if (!authData) {
-    return NextResponse.json({ error: "Authentication failed" }, { status: 401 });
-  }
 
-  const pushResponse: any = { // Build the PushResponse manually
+  // Initialize PushResponse structure
+  const pushResponse: {
+    mutations: Array<{ id: number; state?: 'ok' | 'error'; error?: string; serverUndo?: any[]; }>; // serverUndo might be needed for complex cases
+    patches?: Array<{ op: 'set' | 'delete'; path: (string | number)[]; value?: any; }>;
+  } = {
     mutations: [],
-    patches: [], // You generate patches to send back
+    patches: [] // Patches generated by successful server mutators
   };
 
-  // Process each mutation in the request
-  for (const mutation of pushRequest.mutations) {
-    const { name, args, id } = mutation;
-    const implementation = (serverMutatorImplementations as any)[name]; // Find the implementation
+  if (!authData) {
+    console.warn("Zero Push: Authentication failed.!!!!!!!!!!!!!!!!!!!!!!");
+    pushRequestPayload.mutations.forEach(mut => {
+      pushResponse.mutations.push({ id: mut.id, state: 'error', error: 'Authentication failed' });
+    });
+    return NextResponse.json(pushResponse, { status: 401 });
+  }
+
+  // Process each mutation sequentially (important if they depend on each other)
+  for (const mutation of pushRequestPayload.mutations) {
+    const { name, args, id: mutationID } = mutation; // `id` here is the mutationID from Zero client
+    const implementation = (serverMutatorImplementations as any)[name];
 
     if (!implementation) {
-      console.warn(`Zero Push: Unknown mutation "${name}" received.`);
-      pushResponse.mutations.push({ id, error: `Unknown mutation: ${name}` });
-      continue; // Skip unknown mutations
+      console.warn(`Zero Push: Unknown mutation "${name}" (MutationID: ${mutationID}) received.`);
+      pushResponse.mutations.push({ id: mutationID, state: 'error', error: `Unknown mutation: ${name}` });
+      continue;
     }
 
     try {
-      // Execute the server-side mutator implementation within a Drizzle transaction
-      // Note: Neon-HTTP transaction might not fully support all types of Drizzle operations
-      // or might have limitations compared to TCP.
-      const resultData = await typedDb.transaction(async (tx) => {
-        // Pass the Drizzle transaction 'tx' or use `typedDb` directly if it's transaction-aware
-        // The functions in `serverMutatorImplementations` use `typedDb` assuming it handles transactions correctly.
-        // If your implementation needs the tx object, you'd refactor `serverMutatorImplementations`.
-        // For simplicity with typedDb already imported, let's keep that style for now.
-        return await implementation(authData, args); // Execute the logic
+      console.log(`Zero Push: Executing server mutator "${name}" (MutationID: ${mutationID})...`);
+      const resultData = await db.transaction(async (drizzleTx) => {
+        return await implementation(authData, args, drizzleTx); // Pass Drizzle transaction context
       });
 
-      // On success, add the mutation result and generate a patch
-      pushResponse.mutations.push({ id, state: 'ok' });
-      // Generate a patch to update Zero state on clients based on the resultData
-      // This requires translating the result back into Zero patches.
-      // This is the complex part of manual implementation - building the patch.
-      // For addMessage: need to add the new message object to Zero state.
-      // For deleteMessage: need to mark the message as deleted.
-      // For clearChat: need to update the currentEventDetails key.
+      pushResponse.mutations.push({ id: mutationID, state: 'ok' });
 
-      // Example patch generation (simplified):
       if (name === 'addMessage' && resultData?.id) {
-        // Add the message to Zero state at the path ['messages', messageId]
-        pushResponse.patches.push({ op: 'set', path: ['messages', resultData.id], value: resultData });
+        // `resultData` from `addMessage` now includes `usernameDisplay` potentially
+        pushResponse.patches!.push({ op: 'set', path: ['messages', resultData.id], value: resultData });
       } else if (name === 'deleteMessage' && resultData?.id) {
-        // Set the isDeleted field on the message
-        pushResponse.patches.push({ op: 'set', path: ['messages', resultData.id, 'isDeleted'], value: true });
+        // resultData from deleteMessage includes { id, isDeleted, deletedAt, deletedByUserId }
+        // We need to update the corresponding fields in the Zero 'messages' object
+        pushResponse.patches!.push({ op: 'set', path: ['messages', resultData.id, 'isDeleted'], value: true });
+        if (resultData.deletedAt !== undefined) {
+          pushResponse.patches!.push({ op: 'set', path: ['messages', resultData.id, 'deletedAt'], value: resultData.deletedAt });
+        }
+        if (resultData.deletedByUserId !== undefined) {
+          pushResponse.patches!.push({ op: 'set', path: ['messages', resultData.id, 'deletedByUserId'], value: resultData.deletedByUserId });
+        }
       } else if (name === 'clearChat' && resultData?.currentEventDetails?.id) {
-        // Set the currentEventDetails key
-        pushResponse.patches.push({ op: 'set', path: ['currentEventDetails'], value: resultData.currentEventDetails });
+        pushResponse.patches!.push({ op: 'set', path: ['currentEventDetails'], value: resultData.currentEventDetails });
       }
-      // Add patch generation for other mutators if they update Zero state
+      // Note: addBlockedWord/removeBlockedWord do not generate patches if they don't modify Zero state directly
 
     } catch (error: any) {
-      // On failure, add the error to the mutation result
-      console.error(`Zero Push: Error executing mutation "${name}" (ID: ${id}):`, error);
-      pushResponse.mutations.push({ id, state: 'error', error: error.message || 'Mutation failed' });
+      console.error(`PUSH_ENDPOINT_ERROR: Mutation "${name}", ID "${mutationID}" FAILED.`);
+      console.error("Error Object:", error); // Log the whole error object
+      console.error("Error Message:", error.message);
+      console.error("Error Stack:", error.stack);
+      console.error(`Zero Push: Error executing server mutator "${name}" (MutationID: ${mutationID}):`, error.message, error.stack);
+      pushResponse.mutations.push({ id: mutationID, state: 'error', error: error.message || 'Mutation execution failed on server' });
       // No patch is generated for failed mutations
     }
   }
 
-  // Return the manually constructed Push Response
+  // Return the constructed Push Response
   return NextResponse.json(pushResponse);
-}
-
-// Helper to get the current active event ID from the database
-// (Needed by addMessage server implementation)
-// This function will use typedDb directly, not relying on a Zero tx object
-async function getCurrentActiveEventId(): Promise<string | null> {
-  try {
-    const activeEvent = await typedDb.query.events.findFirst({
-      where: eq(eventsTable.isActive, true),
-      columns: { id: true },
-      orderBy: [desc(eventsTable.createdAt)]
-    });
-    return activeEvent?.id || null;
-  } catch (error) {
-    console.error("Failed to get current active event ID in server mutator:", error);
-    throw new Error("Failed to determine active event."); // Propagate error
-  }
 }

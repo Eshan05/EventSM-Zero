@@ -23,7 +23,7 @@ import LinesLoader from '../../components/linesLoader';
 type AppMutators = ReturnType<typeof createMutators>;
 export const useZero = createUseZero<Schema, AppMutators>();
 
-// This component fetches the token, initializes Zero, and wraps children with OfficialZeroProvider
+
 export function ZeroProvider({ children }: { children: ReactNode }) {
   const { data: session, status } = useSession();
   const [zeroToken, setZeroToken] = useState<string | null>(null);
@@ -34,7 +34,9 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
     if (status === 'authenticated' && session?.user?.id) {
       setIsZeroLoading(true);
       setZeroError(null);
-      fetch('/api/zero-token')
+      fetch('/api/zero-token', {
+        // method: 'POST',
+      })
         .then(res => {
           if (!res.ok) {
             return res.json().catch(() => ({ message: `HTTP error ${res.status}` }))
@@ -62,14 +64,15 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
   }, [status, session]);
 
   const zeroInstance = useMemo(() => {
-    const userIdFromSession = (session?.user as any)?.id as string | undefined;
+    // const zeroInstance = () => {
+    const userIdFromSession = (session?.user as CustomUser)?.id as string | undefined;
 
     if (zeroToken && userIdFromSession) {
       console.log(`Initializing Zero client instance for user ${userIdFromSession}...`);
       setZeroError(null);
 
       const config = {
-        server: process.env.NEXT_PUBLIC_ZERO_SERVER_URL!, // WebSocket URL for zero-cache
+        server: "http://localhost:4848", // WebSocket URL for zero-cache
         auth: zeroToken, // Pass the fetched JWT for WebSocket auth
         userID: userIdFromSession, // Pass the user ID matching the JWT's 'sub' claim
         schema: zeroSchemaDefinition, // Pass schema to client Zero instance
@@ -83,35 +86,17 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
       // Zero hooks like useQuery often expose loading/error states implicitly.
       // If you need explicit connection status, check Zero client API types or docs further.
       // For now, rely on hooks and general error state.
-      console.log("Note: Zero client instance event properties (onError, onConnect, onDisconnect) might not be available or used differently.");
       return instance;
     } else {
       return null;
     }
-  }, [zeroToken, (session?.user as CustomUser)?.id, session?.user]);
-
-  useEffect(() => {
-    return () => {
-      if (zeroInstance) {
-        console.log('Closing Zero client connection.');
-        zeroInstance.close();
-      }
-    };
-  }, [zeroInstance]);
-
+    // }
+  }, [zeroToken, (session?.user as CustomUser)?.id]);
 
   const isLoading = status === 'loading' || (status === 'authenticated' && !zeroInstance && !zeroError);
-  if (isLoading) {
-    return <LinesLoader />;
-  }
-
-  if (zeroError) {
-    return <div>Error connecting to chat: {zeroError.message}</div>;
-  }
-
-  if (!zeroInstance) {
-    return <div>Initializing Zero instance...</div>;
-  }
+  if (isLoading) return <LinesLoader />;
+  if (zeroError) return <div>Error connecting to chat: {zeroError.message}</div>;
+  if (!zeroInstance) return <div>Initializing Zero instance...</div>;
 
   return (
     <OfficialZeroProvider zero={zeroInstance}>

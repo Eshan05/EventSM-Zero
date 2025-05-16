@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getClientIP } from '@/utils/client-ip';
-// import { auth } from '@/lib/auth';
+import { auth, CustomSession } from '@/lib/auth';
 import { getToken } from 'next-auth/jwt';
 
 const LOG_PREFIX = '[Middleware]';
@@ -16,8 +16,8 @@ const PROTECTED_PATHS_STARTS_WITH: string[] = [
   USER_DASHBOARD_PATH,
   '/profile',
   '/settings',
-  '/api/chat',
-  '/api/zero-token',
+  '/api/chat/active',
+  '/chat',
 ];
 
 const ADMIN_PATHS_STARTS_WITH: string[] = [
@@ -37,12 +37,19 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname.startsWith('/api/zero-push')) {
+    console.log(`${LOG_CTX} Allowing Zero Token API route.`);
+    return NextResponse.next();
+  }
+
   const token = await getToken({ req, secret: process.env.AUTH_SECRET });
   // console.log(`${LOG_CTX} Token fetched.`, token);
   const isAuthenticated = !!token;
   const userRole = token?.role;
   const userId = token?.sub;
-  const user = token;
+  // const user = token;
+  const session = await auth();
+  const user = session?.user as CustomSession["user"] | undefined;
   console.log(`${LOG_CTX} Token fetched. Authenticated: ${isAuthenticated}, User ID: ${userId ?? 'Guest'}, Role: ${userRole ?? 'None'}`);
 
 
@@ -88,6 +95,7 @@ export async function middleware(req: NextRequest) {
   console.warn(`${LOG_CTX} Middleware reached end without explicit action. Allowing by default.`);
   return NextResponse.next();
 }
+
 
 export const config = {
   matcher: [

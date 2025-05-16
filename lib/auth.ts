@@ -129,7 +129,7 @@ export const authConfig = {
       return token;
     },
 
-    async session({ session, token }) {
+    async session({ session, token, user }) {
       if (session.user && token.sub) {
         (session.user as unknown as CustomUser).id = token.sub as string;
         if (token.email) (session.user as unknown as CustomUser).email = token.email as string;
@@ -139,7 +139,6 @@ export const authConfig = {
         // Map your custom claims from the token to session.user
         if (token.role) (session.user as unknown as CustomUser).role = token.role as "user" | "admin";
         if (token.username) (session.user as unknown as CustomUser).username = token.username as string;
-        // if (token.accessToken) (session as CustomSession).accessToken = token.accessToken as string;
       } else {
         console.warn("Session callback: session.user or token.sub missing.", { sessionUser: session.user, tokenSub: token.sub });
       }
