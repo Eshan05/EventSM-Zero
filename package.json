@@ -2,6 +2,7 @@
   "name": "chatslowmode-zero",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "db:up": "docker-compose up",
     "db:down": "docker-compose down --volumes",
@@ -13,7 +14,7 @@
     "db:migrate-push": "drizzle-kit generate && drizzle-kit push",
     "db:seed": "bun ./db/seed.ts",
     "dev:next": "next dev --turbopack",
-    "dev:zero": "zero-cache-dev --p ./lib/zero/config.ts",
+    "dev:zero": "zero-cache-dev --schema-path ./lib/zero/config.ts",
     "dev": "pnpm run /^dev:/",
     "build:next": "next build",
     "build:zero-schema": "zero-build-schema --schema-path ./lib/zero/config.ts",

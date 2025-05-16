@@ -20,8 +20,8 @@ const loginRatelimiter = new Ratelimit({
 
 export interface CustomUser extends NextAuthUser {
   id: string;
-  name: string | null;
-  email: string | null;
+  name: string;
+  email: string;
   image: string | null;
   role: "user" | "admin";
   username: string;
@@ -122,7 +122,6 @@ export const authConfig = {
         if (user.email) token.email = user.email;
         if (user.name) token.name = user.name;
         if (user.image) token.picture = user.image;
-        // Cast 'user' to CustomUser to safely access custom properties like 'role' and 'username'
         token.role = (user as CustomUser).role;
         token.username = (user as CustomUser).username;
       }
@@ -131,12 +130,7 @@ export const authConfig = {
     },
 
     async session({ session, token }) {
-      // This callback runs whenever a session is checked (e.g., via useSession() on client, or auth() on server)
-      // It takes the JWT payload ('token') and populates the client-side (or server-side) session object.
-      // Ensure your custom fields from the token are added to session.user.
-
       if (session.user && token.sub) {
-        // Map standard JWT claims back to session.user
         (session.user as unknown as CustomUser).id = token.sub as string;
         if (token.email) (session.user as unknown as CustomUser).email = token.email as string;
         if (token.name) (session.user as unknown as CustomUser).name = token.name as string;
@@ -145,14 +139,11 @@ export const authConfig = {
         // Map your custom claims from the token to session.user
         if (token.role) (session.user as unknown as CustomUser).role = token.role as "user" | "admin";
         if (token.username) (session.user as unknown as CustomUser).username = token.username as string;
-
-        // If you added accessToken to token in jwt callback, add it to session:
         // if (token.accessToken) (session as CustomSession).accessToken = token.accessToken as string;
       } else {
         console.warn("Session callback: session.user or token.sub missing.", { sessionUser: session.user, tokenSub: token.sub });
       }
 
-      // Return the session object with your custom user type
       return session as unknown as CustomSession;
     },
 
@@ -168,7 +159,7 @@ export const authConfig = {
   pages: {
     signIn: "/u",
     error: `/u/auth?error=${encodeURIComponent("CredentialsSignin")}`,
-    // newUser: '/u/auth?mode=signup', 
+    newUser: '/u/auth?mode=signup',
   },
 
   debug: process.env.NODE_ENV === "development",

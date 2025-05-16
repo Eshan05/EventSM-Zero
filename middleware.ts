@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getClientIP } from '@/utils/client-ip';
-import { auth } from '@/lib/auth.config';
+// import { auth } from '@/lib/auth';
+import { getToken } from 'next-auth/jwt';
 
 const LOG_PREFIX = '[Middleware]';
 
@@ -36,11 +37,13 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const session = await auth();
-  const isAuthenticated = !!session?.user;
-  const user = session?.user as import('./lib/auth').CustomUser | null;
-
-  console.log(`${LOG_CTX} Session fetched. Authenticated: ${isAuthenticated}, User ID: ${user?.id ?? 'Guest'}, Role: ${user?.role ?? 'None'}`);
+  const token = await getToken({ req, secret: process.env.AUTH_SECRET });
+  // console.log(`${LOG_CTX} Token fetched.`, token);
+  const isAuthenticated = !!token;
+  const userRole = token?.role;
+  const userId = token?.sub;
+  const user = token;
+  console.log(`${LOG_CTX} Token fetched. Authenticated: ${isAuthenticated}, User ID: ${userId ?? 'Guest'}, Role: ${userRole ?? 'None'}`);
 
 
   if (isAuthenticated && user) {

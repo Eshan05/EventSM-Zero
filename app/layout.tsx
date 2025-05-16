@@ -41,8 +41,6 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {/* SessionProvider is for client-side use only and when using Next.js App Router (app/) you should prefer the auth() export. */}
-          {/* <SessionProvider>{children}</SessionProvider> */}
           {children}
           <Toaster />
         </ThemeProvider>

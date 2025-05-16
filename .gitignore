@@ -43,3 +43,4 @@ next-env.d.ts
 lib/utils.server.ts
 drizzle/meta
 .vscode
+tmp/
