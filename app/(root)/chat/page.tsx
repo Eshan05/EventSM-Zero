@@ -150,7 +150,7 @@ export default function ChatPage() {
     );
 
     return messagesForCurrentEvent.map((msg) => {
-      const user = usersMap.get(msg.userId);
+      const user = usersMap.get(msg.userId as string);
       const messageForUI: MessageForUI = {
         // @ts-expect-error FML
         id: msg.id,
@@ -167,7 +167,7 @@ export default function ChatPage() {
       };
       return messageForUI;
     });
-  }, [rawMessages, rawUsers, currentEvent?.id, activeUsers]);
+  }, [rawMessages, rawUsers, currentEvent?.id]);
 
   useEffect(() => {
     if (messagesEndRef.current) {

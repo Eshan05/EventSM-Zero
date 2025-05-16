@@ -22,7 +22,7 @@ export default function Emojis() {
     <main className="flex items-center justify-center">
       <Popover onOpenChange={setIsOpen} open={isOpen}>
         <PopoverTrigger asChild>
-          <Button size={'md-icon'} variant={'outline'}><BsEmojiSmile className="size-3.5" /></Button>
+          <Button size={'md-icon'} variant={'outline'}><BsEmojiSmile className="size-4" /></Button>
         </PopoverTrigger>
         <PopoverContent className="w-fit p-0">
           <EmojiPicker
