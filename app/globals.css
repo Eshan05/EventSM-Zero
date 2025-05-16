@@ -47,6 +47,11 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --animate-shiny-text: shiny-text 8s infinite;
+  @keyframes shiny-text {
+    0%, 90%, 100% { background-position: calc(-100% - var(--shiny-width)) 0; }
+    30%, 60% { background-position: calc(100% + var(--shiny-width)) 0; }
+  }
 }
 
 :root {
@@ -147,4 +152,32 @@
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.border-reflect {
+  --c: 189 23% 23%;
+  --min: hsl(var(--c)/0.2);
+  --max: hsl(var(--c)/1);
+  --gradientBorder-gradient: linear-gradient(180deg,var(--min),var(--max),var(--min)),linear-gradient(15deg,var(--min) 50%,var(--max));
+  --opacity: 1;
+  --chat-input-background: #332e3866;
+  --chat-input-gradient: 289 23% 23%;
+  --chat-background: 270 16.13% 12.16%;
+  --chat-border: 333.3 22% 16.1%;
+  --start: rgba(0,0,0,.85);
+}
+
+.border-reflect::before {
+  content: "";
+  pointer-events: none;
+  user-select: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--gradientBorder-size,1px);
+  background: var(--gradientBorder-gradient);
+  mask: linear-gradient(var(--start),#000) content-box,linear-gradient(var(--start),#000);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: var(--opacity,1);
 }

@@ -23,6 +23,7 @@
     "plugins": [ { "name": "next" } ],
     "paths": { "@/*": [ "./*" ], },
     "allowJs": true,
+    "baseUrl": ".",
     "allowImportingTsExtensions": true
   },
   "include": [
