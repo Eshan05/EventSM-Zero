@@ -1,12 +1,7 @@
 'use client'
 
-import { PopoverContentProps, PopoverProps, PopoverTriggerProps } from '@radix-ui/react-popover'
-import {
-  TooltipContentProps,
-  TooltipProps,
-  TooltipProviderProps,
-  TooltipTriggerProps,
-} from '@radix-ui/react-tooltip'
+import { PopoverContentProps, PopoverProps, PopoverTriggerProps, TooltipContentProps, TooltipProps, TooltipProviderProps, TooltipTriggerProps } from 'radix-ui'
+
 import { createContext, useContext, useEffect, useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import {
