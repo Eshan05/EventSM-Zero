@@ -58,6 +58,7 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
+  const [isUserListDialogOpen, setIsUserListDialogOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isZeroClientAvailable = !!z;
@@ -109,6 +110,26 @@ export default function ChatPage() {
     (authStatus === 'authenticated' && currentEvent && z) &&
     (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete');
 
+  // Determine active users based on messages in the current event
+  const activeUsers = useMemo((): RawZeroUser[] => {
+    if (!currentEvent?.id || !rawMessages || !rawUsers) {
+      return [];
+    }
+
+    const userIdsInEvent = new Set<string>();
+    rawMessages.forEach(msg => {
+      if (msg.eventId === currentEvent.id) {
+        userIdsInEvent.add(msg.userId);
+      }
+    });
+
+    const usersInEvent = rawUsers.filter(user => user.id !== null && userIdsInEvent.has(user.id));
+    if (usersInEvent.length === 0) return [];
+    // Sort users alphabetically by username
+    usersInEvent.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+
+    return usersInEvent.map(user => ({ ...user, id: user.id as string }));
+  }, [currentEvent?.id, rawMessages, rawUsers]);
 
   const combinedMessages = useMemo((): readonly MessageForUI[] => { // Return readonly array
     if (!currentEvent?.id || !rawMessages || !rawUsers) {
@@ -135,7 +156,7 @@ export default function ChatPage() {
         userImage: user?.image || null,
       };
     });
-  }, [rawMessages, rawUsers, currentEvent?.id]);
+  }, [rawMessages, rawUsers, currentEvent?.id, activeUsers]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -243,6 +264,31 @@ export default function ChatPage() {
             {isMessagesDataComplete && isUsersDataComplete ? 'Synced' :
               (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete') ? 'Error' : 'Syncing...'}
           </Badge>
+          {/* Avatar Group and User List Dialog Trigger */}
+          {activeUsers.length > 0 && (
+            <div
+              className="flex -space-x-2 overflow-hidden cursor-pointer"
+              onClick={() => setIsUserListDialogOpen(true)}
+              title={`View ${activeUsers.length} active user(s)`}
+            >
+              {activeUsers.slice(0, 3).map(user => (
+                <Avatar key={user.id} className="size-8 border-2 border-background">
+                  {user.image ? (
+                    <img src={user.image} alt={user.username || 'User'} className="object-cover w-full h-full rounded-full" />
+                  ) : (
+                    <span className="flex items-center justify-center w-full h-full text-sm font-semibold bg-primary text-primary-foreground rounded-full">
+                      {user.username?.[0]?.toUpperCase() || '?'}
+                    </span>
+                  )}
+                </Avatar>
+              ))}
+              {activeUsers.length > 3 && (
+                <div className="size-8 bg-muted-foreground text-muted flex items-center justify-center rounded-full border-2 border-background text-xs font-medium">
+                  +{activeUsers.length - 3}
+                </div>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto p-4 space-y-4 bg-muted/40 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
           {(!isMessagesDataComplete || !isUsersDataComplete) && (
@@ -346,6 +392,31 @@ export default function ChatPage() {
           </form>
         </CardFooter>
       </Card>
+      {/* Simple User List Dialog (replace with Shadcn Dialog) */}
+      {isUserListDialogOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-lg shadow-xl max-w-sm w-full p-6">
+            <h2 className="text-xl font-bold mb-4">Active Users ({activeUsers.length})</h2>
+            <div className="max-h-60 overflow-y-auto space-y-3">
+              {activeUsers.map(user => (
+                <div key={user.id} className="flex items-center gap-3">
+                  <Avatar className="size-8">
+                    {user.image ? (
+                      <img src={user.image} alt={user.username || 'User'} className="object-cover w-full h-full rounded-full" />
+                    ) : (
+                      <span className="flex items-center justify-center w-full h-full text-sm font-semibold bg-primary text-primary-foreground rounded-full">
+                        {user.username?.[0]?.toUpperCase() || '?'}
+                      </span>
+                    )}
+                  </Avatar>
+                  <span>{user.username || 'Unknown User'}</span>
+                </div>
+              ))}
+            </div>
+            <Button className="mt-6 w-full" onClick={() => setIsUserListDialogOpen(false)}>Close</Button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
