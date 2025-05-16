@@ -80,6 +80,9 @@ export const events = pgTable("events", {
     .defaultNow(),
 });
 
+export type SEvent = typeof events.$inferSelect;
+export type SEventInsert = typeof events.$inferInsert;
+
 export const messages = pgTable(
   "messages",
   {

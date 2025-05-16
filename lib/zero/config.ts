@@ -97,32 +97,5 @@ export function createMutators(authData?: ZeroAuthData) {
 
 
 export const permissions = definePermissions<CustomMutatorDefs<Schema>, Schema>(schema, () => {
-  return {
-    // ANYONE_CAN for now
-    addMessage: {
-      row: {
-        select: ANYONE_CAN
-      }
-    },
-    deleteMessage: {
-      row: {
-        select: ANYONE_CAN
-      }
-    },
-    clearChat: {
-      row: {
-        select: ANYONE_CAN
-      }
-    },
-    addBlockedWord: {
-      row: {
-        select: ANYONE_CAN
-      }
-    },
-    removeBlockedWord: {
-      row: {
-        select: ANYONE_CAN
-      }
-    },
-  } as PermissionsConfig<CustomMutatorDefs<Schema>, Schema>;
+  return {};
 });

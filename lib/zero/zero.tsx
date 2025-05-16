@@ -30,6 +30,10 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
   const [zeroError, setZeroError] = useState<Error | null>(null);
   const [isZeroLoading, setIsZeroLoading] = useState(true);
 
+  const userIdFromSession = useMemo(() => {
+    return (session?.user as CustomUser)?.id as string | undefined;
+  }, [session?.user]);
+
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.id) {
       setIsZeroLoading(true);
@@ -64,9 +68,6 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
   }, [status, session]);
 
   const zeroInstance = useMemo(() => {
-    // const zeroInstance = () => {
-    const userIdFromSession = (session?.user as CustomUser)?.id as string | undefined;
-
     if (zeroToken && userIdFromSession) {
       console.log(`Initializing Zero client instance for user ${userIdFromSession}...`);
       setZeroError(null);
@@ -91,7 +92,7 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
       return null;
     }
     // }
-  }, [zeroToken, (session?.user as CustomUser)?.id]);
+  }, [zeroToken, userIdFromSession]);
 
   const isLoading = status === 'loading' || (status === 'authenticated' && !zeroInstance && !zeroError);
   if (isLoading) return <LinesLoader />;

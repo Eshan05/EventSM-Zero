@@ -97,6 +97,15 @@ export default function ChatPage() {
   const [rawMessagesData, messagesResult] = useQuery(z?.query.messages);
   // Subscribe to all users.
   const [rawUsersData, usersResult] = useQuery(z?.query.users);
+  useEffect(() => {
+    console.log("ZERO CLIENT: rawMessagesData updated:", rawMessagesData);
+    console.log("ZERO CLIENT: messagesResultInfo:", messagesResult);
+  }, [rawMessagesData, messagesResult]);
+
+  useEffect(() => {
+    console.log("ZERO CLIENT: rawUsersData updated:", rawUsersData);
+    console.log("ZERO CLIENT: usersResultInfo:", usersResult);
+  }, [rawUsersData, usersResult]);
 
   // Determine if the data from queries is complete (initial sync finished)
   const isMessagesDataComplete = messagesResult?.type === 'complete';
@@ -147,22 +156,33 @@ export default function ChatPage() {
 
   // --- Handle Sending New Message ---
   const handleSendMessage = async (e: React.FormEvent) => {
+    console.trace("[Client]: HandleSendMessage Triggered:", newMessageText);
     e.preventDefault();
-    // Ensure Zero instance is ready, data is synced, not already sending, text exists, and current event is set
-    if (!z || !(isMessagesDataComplete && isUsersDataComplete) || isSending || !newMessageText.trim() || !currentEvent?.id) {
-      console.warn("Cannot send message: Conditions not met.", {
-        z_exists: !!z,
-        dataComplete: isMessagesDataComplete && isUsersDataComplete,
-        isSending,
-        text: newMessageText,
-        event: currentEvent
-      });
+    const textToSend = newMessageText.trim();
+    const eventIdToSend = currentEvent?.id; // Use currentEvent.id
+
+    // Stricter client-side validation FIRST
+    if (!textToSend) {
+      alert("Client: Message text cannot be empty.");
+      setNewMessageText(''); // Clear the visually empty input
+      return; // Do not proceed
+    }
+
+    if (!z) {
+      alert("Client: Zero service not ready.");
+      return;
+    }
+    if (!eventIdToSend) {
+      alert("Client: No active event to send message to.");
+      return;
+    }
+    if (isSending) {
+      console.warn("Client: Message send already in progress.");
       return;
     }
 
-    const text = newMessageText.trim();
-    if (!text) {
-      console.warn("Attempted to send empty message.");
+    if (!isMessagesDataComplete || !isUsersDataComplete) {
+      alert("Client: Chat data still syncing, please wait.");
       return;
     }
 
@@ -170,12 +190,17 @@ export default function ChatPage() {
 
     try {
       // Call the 'addMessage' mutator via the typed `z.mutate` object
+      console.log("Sending addMessage mutation with text:", textToSend);
       const mutation = z.mutate.addMessage({
-        text: text || 'A',
+        text: textToSend || 'A',
         replyToId: replyToId === null ? undefined : replyToId, // Convert null to undefined
         eventId: currentEvent.id, // Pass current event ID for server-side association
       });
-      await mutation.server; // Await the mutation to ensure it completes
+      await mutation.client.then(() => console.log("CLIENT: Optimistic update for addMessage completed."))
+        .catch(err => console.error("CLIENT: Optimistic update for addMessage FAILED:", err));
+      await mutation.server.then(() => console.log("CLIENT: Server confirmed addMessage."))
+        .catch(err => console.error("CLIENT: Server REJECTED addMessage:", err));
+
       console.log("addMessage mutation sent successfully.");
       setNewMessageText(''); // Clear input on successful optimistic update
       setReplyToId(null);   // Clear reply state
