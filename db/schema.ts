@@ -9,7 +9,7 @@ import {
   pgEnum,
   uuid,
   integer,
-  AnyPgColumn,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters"

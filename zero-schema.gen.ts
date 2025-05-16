@@ -23,244 +23,131 @@ import type { default as zeroSchema } from "./drizzle-zero.config";
  * This type is auto-generated from your Drizzle schema definition.
  */
 export const schema = {
-  __esModule: true,
-  default: {
-    tables: {
-      events: {
-        name: "events",
-        columns: {
-          id: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          name: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          isActive: {
-            type: "boolean",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "is_active",
-          },
+    "__esModule": true,
+    "default": {
+        "tables": {
+            "events": {
+                "name": "events",
+                "columns": {
+                    "id": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "name": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "isActive": {
+                        "type": "boolean",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "is_active"
+                    }
+                },
+                "primaryKey": ["id"]
+            },
+            "messages": {
+                "name": "messages",
+                "columns": {
+                    "id": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "eventId": {
+                        "type": "string",
+                        "optional": false,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "event_id"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "optional": false,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "user_id"
+                    },
+                    "text": {
+                        "type": "string",
+                        "optional": false,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "replyToMessageId": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "reply_to_message_id"
+                    },
+                    "isDeleted": {
+                        "type": "boolean",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "is_deleted"
+                    },
+                    "deletedByUserId": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "deleted_by_user_id"
+                    },
+                    "deletedAt": {
+                        "type": "number",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "deleted_at"
+                    },
+                    "createdAt": {
+                        "type": "number",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "created_at"
+                    }
+                },
+                "primaryKey": ["id"]
+            },
+            "users": {
+                "name": "users",
+                "columns": {
+                    "id": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "username": {
+                        "type": "string",
+                        "optional": false,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "role": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">
+                    },
+                    "image": {
+                        "type": "string",
+                        "optional": true,
+                        "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "tables", "columns">,
+                        "serverName": "avatar_url"
+                    }
+                },
+                "primaryKey": ["id"]
+            }
         },
-        primaryKey: ["id"],
-      },
-      messages: {
-        name: "messages",
-        columns: {
-          id: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          eventId: {
-            type: "string",
-            optional: false,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "event_id",
-          },
-          userId: {
-            type: "string",
-            optional: false,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "user_id",
-          },
-          text: {
-            type: "string",
-            optional: false,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          replyToMessageId: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "reply_to_message_id",
-          },
-          isDeleted: {
-            type: "boolean",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "is_deleted",
-          },
-          deletedByUserId: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "deleted_by_user_id",
-          },
-          deletedAt: {
-            type: "number",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "deleted_at",
-          },
-          createdAt: {
-            type: "number",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "created_at",
-          },
-        },
-        primaryKey: ["id"],
-      },
-      users: {
-        name: "users",
-        columns: {
-          id: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          username: {
-            type: "string",
-            optional: false,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          role: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-          },
-          image: {
-            type: "string",
-            optional: true,
-            customType: null as unknown as ZeroCustomType<
-              typeof zeroSchema,
-              "tables",
-              "columns"
-            >,
-            serverName: "avatar_url",
-          },
-        },
-        primaryKey: ["id"],
-      },
-    },
-    relationships: {
-      messages: {
-        event: [
-          {
-            sourceField: ["eventId"],
-            destField: ["id"],
-            destSchema: "events",
-            cardinality: "one",
-          },
-        ],
-        user: [
-          {
-            sourceField: ["userId"],
-            destField: ["id"],
-            destSchema: "users",
-            cardinality: "one",
-          },
-        ],
-        parentMessage: [
-          {
-            sourceField: ["replyToMessageId"],
-            destField: ["id"],
-            destSchema: "messages",
-            cardinality: "one",
-          },
-        ],
-        replies: [
-          {
-            sourceField: ["id"],
-            destField: ["replyToMessageId"],
-            destSchema: "messages",
-            cardinality: "many",
-          },
-        ],
-        deletedBy: [
-          {
-            sourceField: ["deletedByUserId"],
-            destField: ["id"],
-            destSchema: "users",
-            cardinality: "one",
-          },
-        ],
-      },
-      users: {
-        messages: [
-          {
-            sourceField: ["id"],
-            destField: ["userId"],
-            destSchema: "messages",
-            cardinality: "many",
-          },
-        ],
-        messagesDeletedBy: [
-          {
-            sourceField: ["id"],
-            destField: ["deletedByUserId"],
-            destSchema: "messages",
-            cardinality: "many",
-          },
-        ],
-      },
-    },
-  },
+        "relationships": {
+            "messages": {
+                "event": [{ "sourceField": ["eventId"], "destField": ["id"], "destSchema": "events", "cardinality": "one" }],
+                "user": [{ "sourceField": ["userId"], "destField": ["id"], "destSchema": "users", "cardinality": "one" }],
+                "parentMessage": [{ "sourceField": ["replyToMessageId"], "destField": ["id"], "destSchema": "messages", "cardinality": "one" }],
+                "replies": [{ "sourceField": ["id"], "destField": ["replyToMessageId"], "destSchema": "messages", "cardinality": "many" }],
+                "deletedBy": [{ "sourceField": ["deletedByUserId"], "destField": ["id"], "destSchema": "users", "cardinality": "one" }]
+            },
+            "users": {
+                "messages": [{ "sourceField": ["id"], "destField": ["userId"], "destSchema": "messages", "cardinality": "many" }],
+                "messagesDeletedBy": [{ "sourceField": ["id"], "destField": ["deletedByUserId"], "destSchema": "messages", "cardinality": "many" }]
+            }
+        }
+    }
 } as const;
 
 /**
