@@ -4,6 +4,9 @@ import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import * as globalSchemaDrizzle from '@/db/schema';
 export type AppDrizzleNodePg = NodePgDatabase<typeof globalSchemaDrizzle>;
 
+// Type for parameters accepted by pg.PoolClient.query
+type PgQueryParams = (string | number | boolean | null | undefined | Buffer | Date)[];
+
 // Type for the Drizzle transaction executor.
 // This is the 'tx' passed to the callback in `db.transaction(async (tx) => {...})`
 export type DrizzleNodePgTransaction = Parameters<
@@ -33,7 +36,7 @@ export class DrizzlePgConnection implements DBConnection<DrizzleNodePgTransactio
     let client: PoolClient | undefined;
     try {
       client = await this.pool.connect(); // Acquire a client from the pool
-      const result: QueryResult<QueryResultRow> = await client.query(sql, params as any[]);
+      const result: QueryResult<QueryResultRow> = await client.query(sql, params as PgQueryParams);
       return result.rows as Row[]; // Assuming Row is compatible with QueryResultRow
     } catch (error) {
       console.error("DrizzlePgConnection.query - Error executing raw SQL:", error);
@@ -88,6 +91,7 @@ export class ZeroDrizzlePgTransaction implements DBTransaction<DrizzleNodePgTran
 
     // Drizzle's transaction executor (NodePgDatabase) should have a `session` property
     // which then has a `client` (the PoolClient for this transaction).
+    // WARNING: Accessing internal Drizzle properties like .session?.client is fragile and may break in future Drizzle versions.
     const currentTxClient = (this.wrappedTransaction as any).session?.client as PoolClient | undefined;
 
     if (!currentTxClient) {
@@ -99,7 +103,7 @@ export class ZeroDrizzlePgTransaction implements DBTransaction<DrizzleNodePgTran
 
     try {
       // Execute the raw SQL query using the PoolClient associated with this Drizzle transaction
-      const result: QueryResult<QueryResultRow> = await currentTxClient.query(sql, params as any[]);
+      const result: QueryResult<QueryResultRow> = await currentTxClient.query(sql, params as PgQueryParams);
       return result.rows as Row[];
     } catch (error) {
       console.error("ZeroDrizzlePgTransaction.query - Error executing raw SQL within transaction:", error);

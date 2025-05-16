@@ -14,7 +14,7 @@ import { Redis } from '@upstash/redis';
 import { Ratelimit } from '@upstash/ratelimit';
 
 const redis = Redis.fromEnv();
-let blockedWordsCache: string[] = [];
+const blockedWordsCache: string[] = [];
 
 /**
  * Creates the map of SERVER-SIDE mutator functions.
@@ -82,7 +82,7 @@ export function createServerMutators(
         createdAt: serverTimestamp,
         deletedAt: null, // Provide defaults for all fields in Zero 'messages' schema
         deletedByUserId: null,
-      } as any);
+      });
 
       console.log("Server Mutator (PushProcessor): addMessage successful for ID", messageId);
       // No need to return patch data, PushProcessor generates patches from DB changes observed by ZQLDatabase
@@ -105,7 +105,7 @@ export function createServerMutators(
         isDeleted: true,
         deletedAt: deleteTimestamp,
         deletedByUserId: authData.sub,
-      } as any);
+      });
       console.log("Server Mutator (PushProcessor): deleteMessage successful for ID", args.messageId);
     },
 

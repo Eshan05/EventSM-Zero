@@ -51,7 +51,7 @@ export const schema = {
             "columns": {
                 "id": {
                     "type": "string",
-                    "optional": false,
+                    "optional": true,
                     "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "messages", "id">
                 },
                 "eventId": {
@@ -97,7 +97,7 @@ export const schema = {
                 },
                 "createdAt": {
                     "type": "number",
-                    "optional": false,
+                    "optional": true,
                     "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "messages", "createdAt">,
                     "serverName": "created_at"
                 }

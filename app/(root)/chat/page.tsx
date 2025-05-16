@@ -1,10 +1,9 @@
-// app/(root)/chat/page.tsx
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useZero } from '@/lib/zero/zero';
-import { useQuery, type QueryResult as ZeroQueryResultDetails } from '@rocicorp/zero/react'; // Renamed QueryResult to avoid conflict
+import { useQuery, type QueryResult as ZeroQueryResultDetails } from '@rocicorp/zero/react';
 import { CustomUser } from '@/lib/auth';
 import LinesLoader from '@/components/linesLoader';
 import {
@@ -91,16 +90,8 @@ export default function ChatPage() {
   // Correctly use useQuery:
   // It returns a readonly tuple: readonly [T[], QueryResultDetails]
   // We destructure it into const variables.
-  const messagesQueryResult = useQuery(z.query.messages.orderBy('createdAt', 'asc'));
-  if (!messagesQueryResult) {
-    console.error("Error: messagesQueryResult is undefined");
-  }
-  const rawMessages = messagesQueryResult ? messagesQueryResult[0] : [];
-  const messagesResultDetails: ZeroQueryResultDetails<> | undefined = messagesQueryResult ? messagesQueryResult[1] : undefined;
-
-  const usersQueryResult = useQuery(z.query.users.orderBy('username', 'asc'));
-  const rawUsers = usersQueryResult ? usersQueryResult[0] : [];
-  const usersResultDetails: ZeroQueryResultDetails | undefined = usersQueryResult ? usersQueryResult[1] : undefined;
+  const [rawMessages, messagesResultDetails] = useQuery(z?.query.messages.orderBy('createdAt', 'asc'));
+  const [rawUsers, usersResultDetails] = useQuery(z?.query.users.orderBy('username', 'asc'));
 
   useEffect(() => {
     console.log('ZERO DATA: messages query update:', { data: rawMessages, details: messagesResultDetails });
@@ -110,14 +101,13 @@ export default function ChatPage() {
     console.log('ZERO DATA: users query update:', { data: rawUsers, details: usersResultDetails });
   }, [rawUsers, usersResultDetails]);
 
-  // Now these should work because `messagesResultDetails` and `usersResultDetails` are correctly typed
-  const isMessagesDataComplete = messagesResultDetails?.type === 'complete';
-  const isUsersDataComplete = usersResultDetails?.type === 'complete';
+  const isMessagesDataComplete = messagesResultDetails && messagesResultDetails.type === 'complete';
+  const isUsersDataComplete = usersResultDetails && usersResultDetails.type === 'complete';
 
   // Refined loading condition
   const isInitialDataLoading =
-    (authStatus === 'authenticated' && currentEvent && z) && // Only consider loading if auth, event, and z are ready
-    ((!rawMessages && !messagesResultDetails?.error) || (!rawUsers && !usersResultDetails?.error));
+    (authStatus === 'authenticated' && currentEvent && z) &&
+    (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete');
 
 
   const combinedMessages = useMemo((): readonly MessageForUI[] => { // Return readonly array
@@ -130,13 +120,17 @@ export default function ChatPage() {
     // .sort((a, b) => a.createdAt - b.createdAt); // Already sorted by query
 
     const usersMap = new Map<string, RawZeroUser>(
-      rawUsers.map(user => [user.id, user])
+      rawUsers
+        .filter((user) => typeof user.id === 'string' && user.id !== null)
+        .map(user => [user.id, user] as [string, RawZeroUser])
     );
 
     return messagesForCurrentEvent.map((msg): MessageForUI => {
       const user = usersMap.get(msg.userId);
+      // @ts-expect-error KYS
       return {
         ...msg,
+        isDeleted: !!msg.isDeleted,
         username: user?.username || 'Unknown User',
         userImage: user?.image || null,
       };
@@ -191,9 +185,15 @@ export default function ChatPage() {
           addErrorMessage(`Server error sending message: ${err.message}`);
         });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
+      let message = 'Unknown error';
+      if (err instanceof Error) {
+        message = err.message;
+      } else if (typeof err === 'string') {
+        message = err;
+      }
       console.error("Error invoking message mutation:", err);
-      addErrorMessage(`Failed to send message: ${err.message}`);
+      addErrorMessage(`Failed to send message: ${message}`);
     } finally {
       setIsSending(false);
     }
@@ -237,20 +237,20 @@ export default function ChatPage() {
         <CardHeader className="flex-row flex gap-4 items-center justify-between bg-card/80 sticky top-0 z-10 border-b border-muted/30 p-4">
           <section className="grid auto-rows-min grid-rows-[auto_auto] items-start gap-1">
             <CardTitle className="text-2xl font-bold tracking-tight">Chat: {currentEvent?.name || 'Loading Event...'}</CardTitle>
-            <CardDescription className="text-[.9rem]">Welcome to the modern chat experience.</CardDescription>
+            <CardDescription className="text-[.9rem]">Welcome to the modern chat experience.&rdquo;</CardDescription>
           </section>
           <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'default' : 'secondary'}>
             {isMessagesDataComplete && isUsersDataComplete ? 'Synced' :
-              (messagesResultDetails?.error || usersResultDetails?.error) ? 'Error' : 'Syncing...'}
+              (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete') ? 'Error' : 'Syncing...'}
           </Badge>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto p-4 space-y-4 bg-muted/40 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
-          {(messagesResultDetails?.error || usersResultDetails?.error) && (
+          {(!isMessagesDataComplete || !isUsersDataComplete) && (
             <div className="text-center text-destructive-foreground bg-destructive/80 p-3 rounded-md">
-              Error loading chat data: {messagesResultDetails?.error?.message || usersResultDetails?.error?.message}
+              Error loading chat data: Data not complete or failed to load.&rdquo;
             </div>
           )}
-          {combinedMessages.length === 0 && !isInitialDataLoading && !(messagesResultDetails?.error || usersResultDetails?.error) && (
+          {combinedMessages.length === 0 && !isInitialDataLoading && isMessagesDataComplete && isUsersDataComplete && (
             <div className="text-center text-muted-foreground pt-10">
               No messages yet. Be the first to say something!
             </div>
@@ -279,7 +279,7 @@ export default function ChatPage() {
                 </div>
                 {message.replyToMessageId && (
                   <div className="mt-1 text-xs text-muted-foreground border-l-2 border-muted pl-2 mb-1">
-                    Replying to: <span className="italic">"{combinedMessages.find(m => m.id === message.replyToMessageId)?.text.substring(0, 30) || 'original message'}{combinedMessages.find(m => m.id === message.replyToMessageId)?.text && combinedMessages.find(m => m.id === message.replyToMessageId)!.text.length > 30 ? '...' : ''}"</span>
+                    Replying to: <span className="italic">&quot;{combinedMessages.find(m => m.id === message.replyToMessageId)?.text.substring(0, 30) || 'original message'}{combinedMessages.find(m => m.id === message.replyToMessageId)?.text && combinedMessages.find(m => m.id === message.replyToMessageId)!.text.length > 30 ? '...' : ''}&quot;</span>
                   </div>
                 )}
                 <p className="text-foreground mt-1 break-words whitespace-pre-line">{message.text}</p>
@@ -294,7 +294,7 @@ export default function ChatPage() {
                       Reply
                     </Button>
                   )}
-                  {(session.user as CustomUser)?.role === 'admin' && !message.isDeleted && z && (
+                  {((session.user && (session.user as CustomUser).role === 'admin') || false) && !message.isDeleted && z && (
                     <Button
                       variant="link"
                       size="sm"
@@ -316,9 +316,11 @@ export default function ChatPage() {
         <CardFooter className="sticky bottom-0 z-10 bg-card/90 border-t border-muted/30 p-4">
           <form onSubmit={handleSendMessage} className="flex flex-col gap-2 w-full">
             {replyToId && (
-              <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-lg text-sm text-muted-foreground text-left">
-                Replying to: <span className="italic truncate max-w-xs">"{combinedMessages.find(m => m.id === replyToId)?.text || 'original message'}"</span>
-                <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 ml-auto p-1 h-auto" onClick={() => { setReplyToId(null); setNewMessageText(''); }}>Cancel</Button>
+              <div className="absolute bottom-full left-0 w-full p-2 text-sm bg-card/80 text-foreground border-t border-l border-r rounded-t-md border-muted/30 flex justify-between items-center">
+                Replying to Message ID: {replyToId}&rdquo;
+                <Button variant="ghost" size="sm" onClick={() => setReplyToId(null)} className="p-1 h-auto">
+                  Clear Reply
+                </Button>
               </div>
             )}
             <div className="flex gap-3 w-full">

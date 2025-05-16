@@ -115,14 +115,16 @@ export class DrizzleZeroTransaction implements DBTransaction<RawDrizzleTx> {
   // This query runs using the wrapped Drizzle transaction.
   async query(sql: string, params: unknown[]): Promise<Row[]> {
     // Access the raw client from the Drizzle transaction object
-    // This access method is driver-specific!
-    // For postgres-js: the transaction object itself has a `client` property for the connection.
-    const rawClient = (this.wrappedTransaction as any).client; // Assuming postgres-js driver structure
+    // This access method is HIGHLY driver-specific and potentially fragile!
+    // This adapter assumes the underlying Drizzle driver transaction object exposes a client.
+    // For postgres-js, the tx object *might* have a .client property.
+    // For Neon HTTP, this might not work or require a different approach.
+    const rawClient = (this.wrappedTransaction as any).client; // Attempt to access underlying client
 
     if (!rawClient) {
       // Fallback or error if raw client isn't found as expected
-      console.error("Could not access raw client from Drizzle transaction for Zero query.");
-      throw new Error("Failed to execute ZQL query within Drizzle transaction.");
+      console.error("Could not access raw client from Drizzle transaction for Zero query. Driver might not expose it.");
+      throw new Error("Failed to execute ZQL query within Drizzle transaction: Could not access raw client.");
     }
 
     // Execute the raw SQL query using the underlying client within the transaction

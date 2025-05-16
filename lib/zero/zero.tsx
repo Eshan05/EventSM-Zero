@@ -136,9 +136,15 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
         });
         setError(null);
         console.log("Zero client initialized successfully.");
-      } catch (initError: any) {
+      } catch (initError: unknown) {
         console.error("Failed to initialize Zero client:", initError);
-        setError(new Error(`Failed to initialize chat service: ${initError.message}`));
+        let errorMessage = "An unknown error occurred during chat service initialization.";
+        if (initError instanceof Error) {
+          errorMessage = `Failed to initialize chat service: ${initError.message}`;
+        } else if (typeof initError === 'string') {
+          errorMessage = `Failed to initialize chat service: ${initError}`;
+        }
+        setError(new Error(errorMessage));
         setCurrentZeroClientContainer(null);
       }
 
@@ -147,7 +153,6 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
       currentZeroClientContainer.instance.close();
       setCurrentZeroClientContainer(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchedZeroToken, userIdFromSession, zeroAuthDataForMutators, isLoadingToken]);
 
 

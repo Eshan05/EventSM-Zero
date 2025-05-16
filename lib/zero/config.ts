@@ -54,7 +54,7 @@ export function createMutators(authData?: ZeroAuthData) {
         deletedByUserId: null,
       };
 
-      await tx.mutate.messages.insert(optimisticMessageData as any);
+      await tx.mutate.messages.insert(optimisticMessageData);
       console.log("Client: Optimistically added message", messageId, "by user", authData.sub);
     },
 
@@ -73,7 +73,7 @@ export function createMutators(authData?: ZeroAuthData) {
         isDeleted: true,
         deletedAt: Date.now(),
         deletedByUserId: authData.sub,
-      } as any);
+      });
       console.log("Client: Optimistically marked message as deleted", args.messageId);
     },
 
@@ -110,12 +110,12 @@ export const permissions = definePermissions<ZeroAuthData, Schema>(schema, () =>
   // This function is a "rule" and will receive `auth` as its first argument from Zero.
   const allowIfAuthenticatedRule = (
     auth: ZeroAuthData | undefined,
-    { cmp }: ExpressionBuilder<Schema, any> // 'any' if the table isn't fixed for this rule
+    { cmp }: ExpressionBuilder<Schema, 'users' | 'events' | 'messages'> // 'any' if the table isn't fixed for this rule
   ) => {
-    if (!isAuthenticated(auth)) return cmp('id' as any, '=', '__NEVER_MATCH__'); // Deny if not authenticated
+    if (!isAuthenticated(auth)) return cmp('id', '=', '__NEVER_MATCH__'); // Deny if not authenticated
     // Allows access to any row if authenticated; specific filtering happens client-side or in query.
     // `id != null` is a common way to express "allow all rows that exist"
-    return cmp('id' as any, 'IS NOT', null);
+    return cmp('id', 'IS NOT', null);
   };
 
   // Rule: User can only insert messages as themselves.

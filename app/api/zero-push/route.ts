@@ -28,10 +28,6 @@ async function getAuthDataFromPushRequest(req: NextRequest): Promise<ZeroAuthDat
   } catch (error) { console.error("JWT verify failed:", error); return undefined; }
 }
 
-// --- Local Zero Push Types (mirrored from Zero protocol) ---
-/**
- * ReadonlyJSONValue type as used in Zero protocol.
- */
 export type ReadonlyJSONValue =
   | null
   | boolean
@@ -40,9 +36,6 @@ export type ReadonlyJSONValue =
   | readonly ReadonlyJSONValue[]
   | { readonly [key: string]: ReadonlyJSONValue };
 
-/**
- * Minimal PushBody type for Zero push endpoint, matching Zero protocol.
- */
 export interface PushBody {
   clientGroupID: string;
   mutations: Array<{ id: number;[key: string]: unknown }>;
@@ -50,10 +43,6 @@ export interface PushBody {
   schemaVersion?: number;
   [key: string]: unknown;
 }
-
-/**
- * Minimal PushResponse type for Zero push endpoint, matching Zero protocol.
- */
 export interface PushResponse {
   mutations: Array<{ id: number; error?: string;[key: string]: unknown }>;
   [key: string]: unknown;
@@ -68,9 +57,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw new Error("Invalid PushRequest payload structure.");
     }
     // console.log("Zero Push (PushProcessor): Received payload:", JSON.stringify(pushRequestPayload, null, 2));
-  } catch (error: any) {
-    console.error("Zero Push (PushProcessor): Failed to parse request body:", error.message);
-    return NextResponse.json({ error: "Invalid request body", details: error.message }, { status: 400 });
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Zero Push (PushProcessor): Failed to parse request body:", error.message);
+      return NextResponse.json({ error: "Invalid request body", details: error.message }, { status: 400 });
+    } else {
+      console.error("Zero Push (PushProcessor): Failed to parse request body:", error);
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
   }
 
   const authData = await getAuthDataFromPushRequest(request);
@@ -96,8 +90,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // console.log("Zero Push (PushProcessor): Successfully processed. Response:", JSON.stringify(pushResponse, null, 2));
     return NextResponse.json(pushResponse);
 
-  } catch (error: any) {
-    console.error("Zero Push (PushProcessor): Unhandled error during process:", error.message, error.stack);
+  } catch (error) {
+    if (error instanceof Error)
+      console.error("Zero Push (PushProcessor): Unhandled error during process:", error.message, error.stack);
     const errorResponse: PushResponse = {
       mutations: pushRequestPayload.mutations.map((m: { id: number }) => ({
         id: m.id,

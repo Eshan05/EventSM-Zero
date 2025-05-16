@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { auth } from '@/lib/auth.config';
 import { getClientIP } from '@/utils/client-ip';
-import { auth, CustomSession } from '@/lib/auth';
-import { getToken } from 'next-auth/jwt';
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
+import { CustomSession } from '@/lib/auth';
 
 const LOG_PREFIX = '[Middleware]';
 
@@ -42,15 +42,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = await getToken({ req, secret: process.env.AUTH_SECRET });
+  // const token = await getToken({ req, secret: process.env.AUTH_SECRET });
   // console.log(`${LOG_CTX} Token fetched.`, token);
-  const isAuthenticated = !!token;
-  const userRole = token?.role;
-  const userId = token?.sub;
-  // const user = token;
   const session = await auth();
+  console.log(session)
+  const isAuthenticated = !!session;
+  // const userRole = token?.role;
+  // const userId = token?.sub;
+  // const user = token;
   const user = session?.user as CustomSession["user"] | undefined;
-  console.log(`${LOG_CTX} Token fetched. Authenticated: ${isAuthenticated}, User ID: ${userId ?? 'Guest'}, Role: ${userRole ?? 'None'}`);
+  // console.log(`${LOG_CTX} Token fetched. Authenticated: ${isAuthenticated}, User ID: ${userId ?? 'Guest'}, Role: ${userRole ?? 'None'}`);
 
 
   if (isAuthenticated && user) {
