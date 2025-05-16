@@ -1,10 +1,12 @@
+// lib/zero/config.ts
 import {
   definePermissions,
   type CustomMutatorDefs,
   type Transaction,
-  ANYONE_CAN_DO_ANYTHING,
-  PermissionsConfig,
-  ANYONE_CAN
+  ANYONE_CAN_DO_ANYTHING, // For broader access if needed
+  ANYONE_CAN,             // For allowing anyone (typically authenticated)
+  type PermissionsConfig, // Explicit type for clarity
+  type ExpressionBuilder, // For building permission expressions
 } from '@rocicorp/zero';
 
 import { schema as generatedZeroSchemaFileContent } from '@/zero-schema.gen';
@@ -16,7 +18,6 @@ export interface ZeroAuthData {
   sub: string;    // User ID (subject claim from JWT)
   role: string;   // User role (e.g., 'admin', 'user')
   username: string; // Username from JWT (ensure it's included)
-  // Removed displayName as your drizzle-zero config for users doesn't use 'name'
 }
 
 // --- Client-Side Mutator Definitions ---
@@ -24,78 +25,169 @@ export function createMutators(authData?: ZeroAuthData) {
   const generateId = () => crypto.randomUUID();
 
   return {
-    /**
-     * Optimistically adds a message to the client's Zero state.
-     * Client will use message.userId to look up username from Zero's 'users' table/map.
-     */
     addMessage: async (tx: Transaction<Schema>, args: { text?: string; replyToId?: string; eventId: string; }) => {
-      if (!authData?.sub) { return; }
-      if (!args.eventId) { return; }
-      if (!args.text || args.text.trim() === "") { return; }
+      if (!authData?.sub) {
+        console.warn("Client Mutator: addMessage called without authData.sub. Optimistic update skipped.");
+        return;
+      }
+      if (!args.eventId) {
+        console.warn("Client Mutator: addMessage called without eventId. Optimistic update skipped.");
+        return;
+      }
+      if (!args.text || args.text.trim() === "") {
+        console.warn("Client Mutator: addMessage called with empty text. Optimistic update skipped.");
+        return;
+      }
 
       const messageId = generateId();
       const clientTimestamp = Date.now();
 
-      // Data for optimistic insertion into the 'messages' table in Zero state.
-      // Fields must match what's defined in your `drizzle-zero.config.ts` for 'messages'
-      // and thus in `schema.gen.ts`.
       const optimisticMessageData = {
         id: messageId,
-        userId: authData.sub, // Essential for linking to the user
+        userId: authData.sub,
         eventId: args.eventId,
-        text: args.text.trim() || "",
+        text: args.text.trim(),
         replyToMessageId: args.replyToId || null,
         isDeleted: false,
-        createdAt: clientTimestamp, // Number timestamp for Zero
-        // NO `usernameDisplay` here, assuming client looks up `users` table by `userId`
-        // The server-side mutator *will* handle the DB insert correctly.
-        // The Zero patch from the server will then provide the authoritative state.
+        createdAt: clientTimestamp,
+        deletedAt: null,
+        deletedByUserId: null,
       };
 
-      // Optimistically insert using the Zero client transaction's mutate API
-      // The 'messages' key here must match the table name in your Zero schema (from drizzle-zero)
-      await tx.mutate.messages.insert(optimisticMessageData as any); // Cast if needed
-      console.log("Client: Optimistically added message", messageId);
+      await tx.mutate.messages.insert(optimisticMessageData as any);
+      console.log("Client: Optimistically added message", messageId, "by user", authData.sub);
     },
 
     deleteMessage: async (tx: Transaction<Schema>, args: { messageId: string }) => {
-      if (!authData?.sub) return;
-      if (!args.messageId) return;
+      if (!authData?.sub) {
+        console.warn("Client Mutator: deleteMessage called without authData.sub. Optimistic update skipped.");
+        return;
+      }
+      if (!args.messageId) {
+        console.warn("Client Mutator: deleteMessage called without messageId. Optimistic update skipped.");
+        return;
+      }
 
       await tx.mutate.messages.update({
         id: args.messageId,
         isDeleted: true,
-        // If you added deletedAt and deletedByUserId to your Zero schema for messages:
-        // deletedAt: Date.now(), // Optimistic deletion timestamp
-        // deletedByUserId: authData.sub, // Optimistic deletion user
-      } as any); // Cast if needed
+        deletedAt: Date.now(),
+        deletedByUserId: authData.sub,
+      } as any);
       console.log("Client: Optimistically marked message as deleted", args.messageId);
     },
 
     clearChat: async (tx: Transaction<Schema>, args: { newEventName?: string }) => {
       if (!authData?.sub) return;
       console.log(`Client: Sending 'clearChat' request. New name: ${args.newEventName || '(default)'}`);
-      // Client-side effect is minimal; server drives the state change via 'currentEventDetails' patch.
     },
 
     addBlockedWord: async (tx: Transaction<Schema>, args: { word: string }) => {
       if (!authData?.sub) return;
       if (!args.word || args.word.trim() === "") return;
       console.log(`Client: Sending 'addBlockedWord' request for: ${args.word}`);
-      // No client-side Zero state update here as 'blockedWords' is false in drizzle-zero.config.ts
     },
 
     removeBlockedWord: async (tx: Transaction<Schema>, args: { word: string }) => {
       if (!authData?.sub) return;
       if (!args.word || args.word.trim() === "") return;
       console.log(`Client: Sending 'removeBlockedWord' request for: ${args.word}`);
-      // No client-side Zero state update
     },
 
-  } as const satisfies CustomMutatorDefs<Schema>; // Ensure types match
+  } as const satisfies CustomMutatorDefs<Schema>;
 }
 
+// --- Zero Permissions Definition ---
+// The first generic argument should be your AuthData type, the second is your Schema type.
+export const permissions = definePermissions<ZeroAuthData, Schema>(schema, () => {
+  // Helper functions to be used by rules.
+  // These helpers themselves don't receive 'auth' directly from Zero;
+  // they are called by the rule functions which do.
+  const isAuthenticated = (auth: ZeroAuthData | undefined): auth is ZeroAuthData => !!auth?.sub;
+  const isAdmin = (auth?: ZeroAuthData) => isAuthenticated(auth) && auth.role === 'admin';
 
-export const permissions = definePermissions<CustomMutatorDefs<Schema>, Schema>(schema, () => {
-  return {};
+  // Rule: Allow if authenticated.
+  // This function is a "rule" and will receive `auth` as its first argument from Zero.
+  const allowIfAuthenticatedRule = (
+    auth: ZeroAuthData | undefined,
+    { cmp }: ExpressionBuilder<Schema, any> // 'any' if the table isn't fixed for this rule
+  ) => {
+    if (!isAuthenticated(auth)) return cmp('id' as any, '=', '__NEVER_MATCH__'); // Deny if not authenticated
+    // Allows access to any row if authenticated; specific filtering happens client-side or in query.
+    // `id != null` is a common way to express "allow all rows that exist"
+    return cmp('id' as any, 'IS NOT', null);
+  };
+
+  // Rule: User can only insert messages as themselves.
+  const allowInsertOwnMessageRule = (
+    auth: ZeroAuthData | undefined,
+    { cmp }: ExpressionBuilder<Schema, 'messages'> // Typed to 'messages' table
+  ) => {
+    if (!isAuthenticated(auth)) return cmp('id', '=', '__NEVER_MATCH__');
+    return cmp('userId', auth.sub); // Ensure the message's userId matches the authenticated user's ID
+  };
+
+  // Rule: Admin can update any message, or user can update their own (for future edits/reactions)
+  const allowUpdateOwnOrAdminRule = (
+    auth: ZeroAuthData | undefined,
+    { cmp, or }: ExpressionBuilder<Schema, 'messages'>
+  ) => {
+    if (!isAuthenticated(auth)) return cmp('id', '=', '__NEVER_MATCH__');
+    if (isAdmin(auth)) return cmp('id', 'IS NOT', null); // Admin can update any existing message
+    return cmp('userId', auth.sub); // User can only modify their own message
+  };
+
+  // Rule: For postMutation, usually simpler if preMutation was restrictive.
+  // If complex logic is needed, it can be added here. For now, if preMutation passed, allow.
+  const allowIfPreMutationPassedRule = (
+    auth: ZeroAuthData | undefined,
+    { cmp }: ExpressionBuilder<Schema, 'messages'>
+  ) => {
+    if (!isAuthenticated(auth)) return cmp('id', '=', '__NEVER_MATCH__');
+    // Can add checks like ensuring userId wasn't changed if it's not allowed
+    return cmp('id', 'IS NOT', null);
+  };
+
+  // Rule: Only admins can "hard" delete messages (if using Zero's generic delete mutator)
+  const allowAdminToDeleteRule = (
+    auth: ZeroAuthData | undefined,
+    { cmp }: ExpressionBuilder<Schema, 'messages'>
+  ) => {
+    if (!isAdmin(auth)) return cmp('id', '=', '__NEVER_MATCH__');
+    return cmp('id', 'IS NOT', null); // Admin can delete any existing message
+  };
+
+  return {
+    users: {
+      row: {
+        select: [allowIfAuthenticatedRule],
+        // Insert, update, delete for users are complex and usually not generic.
+        // They'd be handled by specific server mutators and auth logic (e.g., registration, profile update).
+        // For Zero's generic mutators, you'd likely restrict them heavily or not define them.
+      },
+    },
+    events: {
+      row: {
+        select: [allowIfAuthenticatedRule],
+        // Events are likely admin-managed.
+      },
+    },
+    messages: {
+      row: {
+        select: [allowIfAuthenticatedRule],
+        insert: [allowInsertOwnMessageRule],
+        update: {
+          preMutation: [allowUpdateOwnOrAdminRule], // Who can initiate an update
+          postMutation: [allowIfPreMutationPassedRule], // What state is valid after update
+        },
+        // This delete rule applies if you use z.mutate.messages.delete(...)
+        // Your custom deleteMessage mutator enforces admin-only on the server already.
+        // For optimistic client-side `tx.mutate.messages.update` to mark as deleted,
+        // the update rules above are more relevant.
+        delete: [allowAdminToDeleteRule],
+      },
+    },
+    // blockedWords and accounts are not synced to client as per drizzle-zero.config.ts
+    // So no permissions needed here for Zero client operations.
+  } satisfies PermissionsConfig<ZeroAuthData, Schema>;
 });

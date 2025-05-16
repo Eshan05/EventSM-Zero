@@ -19,7 +19,7 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().defaultRandom().notNull(),
     name: text("name").notNull().default(""),
     username: varchar("username", { length: 50 }).notNull().unique(),
     email: varchar("email", { length: 255 }).notNull().unique(),
@@ -86,7 +86,7 @@ export type SEventInsert = typeof events.$inferInsert;
 export const messages = pgTable(
   "messages",
   {
-    id: uuid("id").primaryKey().defaultRandom(), // This ID will sync with Zero's message ID
+    id: uuid("id").primaryKey().defaultRandom().notNull(), // This ID will sync with Zero's message ID
     eventId: uuid("event_id") // FK
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),

@@ -1,6 +1,8 @@
+'use client';
+
 import { Providers } from "@/components/providers";
 
-export default async function VLayout({
+export default function VLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;

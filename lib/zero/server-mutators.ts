@@ -56,6 +56,10 @@ export function createServerMutators(
       const { success: userSuccess } = await userRatelimit.limit(`add_msg_${eventIdToUse}`);
       if (!userSuccess) throw new Error('You are sending messages too quickly.');
       // ... global rate limit ...
+      // TODO: Make this set-able by the admin in the chat interface
+      // const globalRatelimit = new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(1, "3s"), prefix: `chat_global_msg_rl` });
+      // const { success: globalSuccess } = await globalRatelimit.limit(`add_message_${eventIdToUse}`);
+      // if (!globalSuccess) throw new Error('Chat is in slow mode. Please wait.');
 
       // Word Blocking - use tx.dbTransaction.wrappedTransaction for direct Drizzle query if needed
       // Or if blockedWords are in Zero schema, use tx.query.blockedWords
