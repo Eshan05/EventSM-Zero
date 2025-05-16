@@ -21,14 +21,14 @@ export interface ZeroAuthData {
  * and server-side (with decoded JWT from push request).
  * The `tx` object will be different (client vs server transaction).
  */
-export function createMutators(authData?: ZeroAuthData) {
+export function createMutators(authData?: ZeroAuthData): CustomMutatorDefs<Schema> {
   return {
     // Your mutator definitions here...
     // The `tx` parameter should be typed as `Transaction<Schema>` for client-side context
     // and will be a `ServerTransaction<Schema, RawDrizzleTx>` in the server context (handled by PushProcessor).
     // The `CustomMutatorDefs<S>` type expects `S` to be the SCHEMA type, not the TRANSACTION type.
 
-    addMessage: async (tx: Transaction<Schema>, args: { text: string; replyToId?: string; eventId: string; }) => {
+    addMessage: async (tx, args: { text: string; replyToId?: string; eventId: string; }) => {
       // Basic client-side validation (server validation is authoritative)
       if (!authData?.sub) throw new Error('Authentication required.');
       if (!args.eventId) throw new Error('Event ID missing.');
@@ -63,7 +63,7 @@ export function createMutators(authData?: ZeroAuthData) {
       await tx.mutate.messages.insert(messageDataForZero);
     },
 
-    deleteMessage: async (tx: Transaction<Schema>, args: { messageId: string }) => {
+    deleteMessage: async (tx, args: { messageId: string }) => {
       if (!authData?.sub) throw new Error('Authentication required.');
       if (!args.messageId) throw new Error('Message ID is required.');
 
@@ -76,7 +76,7 @@ export function createMutators(authData?: ZeroAuthData) {
       });
     },
 
-    clearChat: async (tx: Transaction<Schema>, args: { newEventName?: string }) => {
+    clearChat: async (tx, args: { newEventName?: string }) => {
       // As discussed, client mutator for clearChat is often just a signal.
       // The Zero state update (setting currentEventDetails) should come from the server patch.
       // So, the client mutator might just exist to allow `zero.mutate.clearChat()` call.
@@ -86,14 +86,14 @@ export function createMutators(authData?: ZeroAuthData) {
       // No tx.set/delete here for this action.
     },
 
-    addBlockedWord: async (tx: Transaction<Schema>, args: { word: string }) => {
+    addBlockedWord: async (tx, args: { word: string }) => {
       if (!authData?.sub) throw new Error('Authentication required.');
       if (!args.word || args.word.trim() === "") throw new Error('Word cannot be empty.');
       console.log(`Client sending addBlockedWord request for: ${args.word}`);
       // No state changes here unless blocked words are part of client-sync'd Zero state.
     },
 
-    removeBlockedWord: async (tx: Transaction<Schema>, args: { word: string }) => {
+    removeBlockedWord: async (tx, args: { word: string }) => {
       if (!authData?.sub) throw new Error('Authentication required.');
       if (!args.word || args.word.trim() === "") throw new Error('Word cannot be empty.');
       console.log(`Client sending removeBlockedWord request for: ${args.word}`);

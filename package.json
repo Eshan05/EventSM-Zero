@@ -74,7 +74,7 @@
     "react-icons": "^5.5.0",
     "sonner": "^2.0.3",
     "tailwind-merge": "^3.3.0",
-    "zod": "^3.25.7"
+    "zod": "^3.24.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
@@ -91,6 +91,7 @@
     "typescript": "^5.8.3"
   },
   "overrides": {
-    "react-is": "^19.0.0"
+    "react-is": "^19.0.0",
+    "@rocicorp/zero": "^0.20.2025051600"
   }
 }

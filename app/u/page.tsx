@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, MailCheckIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { IoInformationOutline } from 'react-icons/io5';
 import { toast } from 'sonner';
@@ -263,127 +263,159 @@ export default function AuthPage() {
 
 
   return (
-    <Suspense fallback={<LinesLoader />}>
-      <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-50 to-white dark:from-neutral-950 dark:to-neutral-400/10 p-4">
-        <Card className="w-full max-w-md pb-0 overflow-clip">
-          <CardHeader className="flex-row flex gap-4 items-center justify-between">
-            <section className="grid auto-rows-min grid-rows-[auto_auto] items-start gap-1">
-              <CardTitle className='text-2xl font-bold'>
-                {activeTab === 'signin' ? 'Welcome Back!' : 'Create an Account'}
-              </CardTitle>
-              <CardDescription className='text-[.8rem]'>
-                {activeTab === 'signin'
-                  ? 'Log in to your account!'
-                  : 'Enter your details to get started.'}
-              </CardDescription>
-            </section>
-            {/* Image component */}
-            <Image src="/logo.svg" alt="Logo" width={32} height={32} className='dark:invert-80 aspect-square' />
-          </CardHeader>
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-50 to-white dark:from-neutral-950 dark:to-neutral-400/10 p-4">
+      <Card className="w-full max-w-md pb-0 overflow-clip">
+        <CardHeader className="flex-row flex gap-4 items-center justify-between">
+          <section className="grid auto-rows-min grid-rows-[auto_auto] items-start gap-1">
+            <CardTitle className='text-2xl font-bold'>
+              {activeTab === 'signin' ? 'Welcome Back!' : 'Create an Account'}
+            </CardTitle>
+            <CardDescription className='text-[.8rem]'>
+              {activeTab === 'signin'
+                ? 'Log in to your account!'
+                : 'Enter your details to get started.'}
+            </CardDescription>
+          </section>
+          {/* Image component */}
+          <Image src="/logo.svg" alt="Logo" width={32} height={32} className='dark:invert-80 aspect-square' />
+        </CardHeader>
 
-          <AuthMessagesHandler /> {/* Component to handle URL params */}
+        <AuthMessagesHandler /> {/* Component to handle URL params */}
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-2/3 mx-auto grid-cols-2 mb-4">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-2/3 mx-auto grid-cols-2 mb-4">
+            <TabsTrigger value="signin">Sign In</TabsTrigger>
+            <TabsTrigger value="signup">Sign Up</TabsTrigger>
+          </TabsList>
 
-            {/* Sign In Form */}
-            <TabsContent value="signin">
-              <Form {...signInForm}>
-                <form onSubmit={signInForm.handleSubmit(handleSignIn)} className="space-y-6">
-                  <CardContent className="space-y-4">
-                    {/* API Error Display */}
-                    {signInForm.formState.errors.root?.apiError && (
-                      <div className="text-destructive text-sm p-3 bg-destructive/10 rounded-md">
-                        {signInForm.formState.errors.root.apiError.message}
-                      </div>
+          {/* Sign In Form */}
+          <TabsContent value="signin">
+            <Form {...signInForm}>
+              <form onSubmit={signInForm.handleSubmit(handleSignIn)} className="space-y-6">
+                <CardContent className="space-y-4">
+                  {/* API Error Display */}
+                  {signInForm.formState.errors.root?.apiError && (
+                    <div className="text-destructive text-sm p-3 bg-destructive/10 rounded-md">
+                      {signInForm.formState.errors.root.apiError.message}
+                    </div>
+                  )}
+
+                  {/* Identifier Field */}
+                  <FormField
+                    control={signInForm.control}
+                    name="identifier"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email or Username</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Username or email" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
+                  />
+                  {/* Password Field */}
+                  <FormField
+                    control={signInForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className='flex items-center justify-between'>
+                          <span>Password</span>
+                          {/* Forgot password link */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button type='button' variant="link" size="none" className="text-xs hover:underline text-muted-foreground">Forgot?</Button>
+                            </TooltipTrigger>
+                            <TooltipContent className='w-42'>
+                              Due to the scope of the application, simply contact one of the admins to reset your account, or make a new account
+                            </TooltipContent>
+                          </Tooltip>
+                        </FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Input
+                              type={showPassword ? 'text' : 'password'}
+                              placeholder="••••••••"
+                              {...field}
+                            />
+                            {/* Password visibility toggle button */}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
+                              onClick={togglePasswordVisibility}
+                            >
+                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              <span className="sr-only">{showPassword ? 'Hide password' : 'Show password'}</span>
+                            </Button>
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {/* Submit Button */}
+                  <section className="flex flex-col gap-4">
+                    <Button type="submit" disabled={isLoading} className="w-full">
+                      {isLoading ? 'Signing In...' : 'Sign In'}
+                    </Button>
+                  </section>
+                </CardContent>
+              </form>
+            </Form>
+          </TabsContent>
 
-                    {/* Identifier Field */}
-                    <FormField
-                      control={signInForm.control}
-                      name="identifier"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email or Username</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Username or email" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    {/* Password Field */}
-                    <FormField
-                      control={signInForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className='flex items-center justify-between'>
-                            <span>Password</span>
-                            {/* Forgot password link */}
+          <TabsContent value="signup">
+            <Form {...signUpForm}>
+              <form onSubmit={signUpForm.handleSubmit(handleSignUp)} className="space-y-6">
+                <CardContent className="space-y-4">
+                  {/* API Error Display */}
+                  {signUpForm.formState.errors.root?.apiError && (
+                    <div className="text-destructive text-sm p-3 bg-destructive/10 rounded-md">
+                      {signUpForm.formState.errors.root?.apiError.message}
+                    </div>
+                  )}
+
+                  <FormField
+                    control={signUpForm.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <header className='px-1 flex items-center gap-2 font-medium'>
+                          <>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button type='button' variant="link" size="none" className="text-xs hover:underline text-muted-foreground">Forgot?</Button>
+                                <Button size={'fit-icon'} variant='outline' type='button' className='rounded-sm'>
+                                  <IoInformationOutline className='hover:text-black dark:hover:text-white text-muted-foreground' />
+                                </Button>
                               </TooltipTrigger>
-                              <TooltipContent className='w-42'>
-                                Due to the scope of the application, simply contact one of the admins to reset your account, or make a new account
+                              <TooltipContent className=''>
+                                <div className='space-y-1 flex flex-col w-60'>
+                                  <h4 className='font-semibold text-base'>Email</h4>
+                                  <p className='text-[.75rem] font-normal'>
+                                    You are free to use any active email. You will not be able to change this later.
+                                  </p>
+                                </div>
                               </TooltipContent>
                             </Tooltip>
-                          </FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Input
-                                type={showPassword ? 'text' : 'password'}
-                                placeholder="••••••••"
-                                {...field}
-                              />
-                              {/* Password visibility toggle button */}
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
-                                onClick={togglePasswordVisibility}
-                              >
-                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                <span className="sr-only">{showPassword ? 'Hide password' : 'Show password'}</span>
-                              </Button>
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    {/* Submit Button */}
-                    <section className="flex flex-col gap-4">
-                      <Button type="submit" disabled={isLoading} className="w-full">
-                        {isLoading ? 'Signing In...' : 'Sign In'}
-                      </Button>
-                    </section>
-                  </CardContent>
-                </form>
-              </Form>
-            </TabsContent>
-
-            <TabsContent value="signup">
-              <Form {...signUpForm}>
-                <form onSubmit={signUpForm.handleSubmit(handleSignUp)} className="space-y-6">
-                  <CardContent className="space-y-4">
-                    {/* API Error Display */}
-                    {signUpForm.formState.errors.root?.apiError && (
-                      <div className="text-destructive text-sm p-3 bg-destructive/10 rounded-md">
-                        {signUpForm.formState.errors.root?.apiError.message}
-                      </div>
+                            <span className=''>Email</span>
+                          </>
+                        </header>
+                        <FormControl>
+                          <Input placeholder="Email" {...field} tabIndex={1} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
-
-                    <FormField
-                      control={signUpForm.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
+                  />
+                  <FormField
+                    control={signUpForm.control}
+                    name="username"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
                           <header className='px-1 flex items-center gap-2 font-medium'>
                             <>
                               <Tooltip>
@@ -392,154 +424,120 @@ export default function AuthPage() {
                                     <IoInformationOutline className='hover:text-black dark:hover:text-white text-muted-foreground' />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent className=''>
-                                  <div className='space-y-1 flex flex-col w-60'>
-                                    <h4 className='font-semibold text-base'>Email</h4>
+                                <TooltipContent className='w-60'>
+                                  <div className='space-y-1 flex flex-col'>
+                                    <h4 className='font-semibold text-base'>Username</h4>
                                     <p className='text-[.75rem] font-normal'>
-                                      You are free to use any active email. You will not be able to change this later.
+                                      The username can only comprise of alphanumeric characters, dots and underscores. You will not be able to change this later.
                                     </p>
                                   </div>
                                 </TooltipContent>
                               </Tooltip>
-                              <span className=''>Email</span>
+                              <span className=''>Username</span>
                             </>
                           </header>
-                          <FormControl>
-                            <Input placeholder="Email" {...field} tabIndex={1} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={signUpForm.control}
-                      name="username"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            <header className='px-1 flex items-center gap-2 font-medium'>
-                              <>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button size={'fit-icon'} variant='outline' type='button' className='rounded-sm'>
-                                      <IoInformationOutline className='hover:text-black dark:hover:text-white text-muted-foreground' />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent className='w-60'>
-                                    <div className='space-y-1 flex flex-col'>
-                                      <h4 className='font-semibold text-base'>Username</h4>
-                                      <p className='text-[.75rem] font-normal'>
-                                        The username can only comprise of alphanumeric characters, dots and underscores. You will not be able to change this later.
-                                      </p>
-                                    </div>
-                                  </TooltipContent>
-                                </Tooltip>
-                                <span className=''>Username</span>
-                              </>
-                            </header>
-                          </FormLabel>
-                          <FormControl>
-                            <Input placeholder="Username" {...field} tabIndex={1} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={signUpForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className='flex items-center justify-between'>
-                            <span>Password</span>
-                            <span className='text-muted-foreground text-xs'>Min. 8 characters</span>
-                          </FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Input
-                                type={showPassword ? 'text' : 'password'}
-                                placeholder="••••••••"
-                                {...field}
-                                tabIndex={1}
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
-                                onClick={togglePasswordVisibility}
-                              >
-                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                <span className="sr-only">{showPassword ? 'Hide password' : 'Show password'}</span>
-                              </Button>
-                            </div>
-                          </FormControl>
-                          <div className="my-1 flex w-full gap-1 h-2">
-                            {[0, 1, 2, 3, 4].map((level) => (
-                              <div
-                                key={level}
-                                className={`h-full flex-1 rounded-full transition-colors duration-300 ${level < strength ? strengthColors[strength] : 'bg-gray-300'}`}
-                              ></div>
-                            ))}
+                        </FormLabel>
+                        <FormControl>
+                          <Input placeholder="Username" {...field} tabIndex={1} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={signUpForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className='flex items-center justify-between'>
+                          <span>Password</span>
+                          <span className='text-muted-foreground text-xs'>Min. 8 characters</span>
+                        </FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Input
+                              type={showPassword ? 'text' : 'password'}
+                              placeholder="••••••••"
+                              {...field}
+                              tabIndex={1}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
+                              onClick={togglePasswordVisibility}
+                            >
+                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              <span className="sr-only">{showPassword ? 'Hide password' : 'Show password'}</span>
+                            </Button>
                           </div>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    {/* Terms and Privacy Checkboxes */}
-                    <section className='flex flex-col space-y-2.5 mx-1'>
-                      <div className="flex items-center space-x-2"> {/* Use flex-center-2 style */}
-                        <Checkbox id="terms" />
-                        <Label htmlFor='terms' className='text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
-                          I agree to the <Link prefetch={false} href="#" className='underline'>Terms of Service</Link>
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2"> {/* Use flex-center-2 style */}
-                        <Checkbox id="privacy" />
-                        <Label htmlFor='privacy' className='text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
-                          I agree to the <Link prefetch={false} href="#" className='underline'>Privacy Policy</Link>
-                        </Label>
-                      </div>
-                    </section>
-                    {/* Submit Button */}
-                    <Button type="submit" disabled={isLoading} className="w-full mt-4">
-                      {isLoading ? 'Creating Account...' : 'Create Account'}
-                    </Button>
-                  </CardContent>
-                </form>
-              </Form>
-            </TabsContent>
+                        </FormControl>
+                        <div className="my-1 flex w-full gap-1 h-2">
+                          {[0, 1, 2, 3, 4].map((level) => (
+                            <div
+                              key={level}
+                              className={`h-full flex-1 rounded-full transition-colors duration-300 ${level < strength ? strengthColors[strength] : 'bg-gray-300'}`}
+                            ></div>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {/* Terms and Privacy Checkboxes */}
+                  <section className='flex flex-col space-y-2.5 mx-1'>
+                    <div className="flex items-center space-x-2"> {/* Use flex-center-2 style */}
+                      <Checkbox id="terms" />
+                      <Label htmlFor='terms' className='text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
+                        I agree to the <Link prefetch={false} href="#" className='underline'>Terms of Service</Link>
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2"> {/* Use flex-center-2 style */}
+                      <Checkbox id="privacy" />
+                      <Label htmlFor='privacy' className='text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
+                        I agree to the <Link prefetch={false} href="#" className='underline'>Privacy Policy</Link>
+                      </Label>
+                    </div>
+                  </section>
+                  {/* Submit Button */}
+                  <Button type="submit" disabled={isLoading} className="w-full mt-4">
+                    {isLoading ? 'Creating Account...' : 'Create Account'}
+                  </Button>
+                </CardContent>
+              </form>
+            </Form>
+          </TabsContent>
 
-          </Tabs>
+        </Tabs>
 
-          <CardFooter className="flex flex-col items-center gap-1 bg-muted border-t-2 py-3">
-            <p className="text-center text-sm text-muted-foreground">
-              {activeTab === 'signin' ? (
-                <>
-                  Don&apos;t have an account?{' '}
-                  <button onClick={() => setActiveTab('signup')} type="button" className="font-medium text-primary hover:underline">
-                    Sign Up
-                  </button>
-                </>
-              ) : (
-                <>
-                  Already have an account?{' '}
-                  <button onClick={() => setActiveTab('signin')} type="button" className="font-medium text-primary hover:underline">
-                    Sign In
-                  </button>
-                </>
-              )}
-            </p>
-            <p className="text-center text-sm text-muted-foreground flex-center-2">
-              <MailCheckIcon className="h-4 w-4" />
-              <span>Need help?</span>{' '}
-              <Link href="/contact" className="font-medium text-primary hover:underline">
-                Contact Us
-              </Link>
-            </p>
-          </CardFooter>
-        </Card>
-      </main>
-    </Suspense>
+        <CardFooter className="flex flex-col items-center gap-1 bg-muted border-t-2 py-3">
+          <p className="text-center text-sm text-muted-foreground">
+            {activeTab === 'signin' ? (
+              <>
+                Don&apos;t have an account?{' '}
+                <button onClick={() => setActiveTab('signup')} type="button" className="font-medium text-primary hover:underline">
+                  Sign Up
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{' '}
+                <button onClick={() => setActiveTab('signin')} type="button" className="font-medium text-primary hover:underline">
+                  Sign In
+                </button>
+              </>
+            )}
+          </p>
+          <p className="text-center text-sm text-muted-foreground flex-center-2">
+            <MailCheckIcon className="h-4 w-4" />
+            <span>Need help?</span>{' '}
+            <Link href="/contact" className="font-medium text-primary hover:underline">
+              Contact Us
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
+    </main>
   );
 }
