@@ -155,7 +155,7 @@
 }
 
 .border-reflect {
-  --c: 189 23% 23%;
+  --c: 240 10% 23%;
   --min: hsl(var(--c)/0.2);
   --max: hsl(var(--c)/1);
   --gradientBorder-gradient: linear-gradient(180deg,var(--min),var(--max),var(--min)),linear-gradient(15deg,var(--min) 50%,var(--max));

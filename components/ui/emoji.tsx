@@ -15,7 +15,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-export default function Emojis() {
+interface EmojisProps {
+  onEmojiSelectAction: (emojiData: { emoji: string; label: string; }) => void;
+}
+
+export default function Emojis({ onEmojiSelectAction }: EmojisProps) { // 2. Receive the prop
   const [isOpen, setIsOpen] = React.useState(false);
 
   return (
@@ -27,9 +31,12 @@ export default function Emojis() {
         <PopoverContent className="w-fit p-0">
           <EmojiPicker
             className="h-[342px]"
-            onEmojiSelect={({ emoji }) => {
+            onEmojiSelect={(emojiData) => {
               setIsOpen(false);
-              console.log(emoji);
+              onEmojiSelectAction(emojiData); // Pass the whole emojiData object or specific parts
+              // For ChatPage, it expects { emoji: string; label: string; }
+              // If emojiData is { emoji: '👍', name: 'Thumbs Up', ... }, this works.
+              // If EmojiPicker gives you just the string, then onEmojiSelect({ emoji: emojiData, label: '' })
             }}
           >
             <EmojiPickerSearch />
