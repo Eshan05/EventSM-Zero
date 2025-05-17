@@ -13,11 +13,19 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
 import { useQuery } from '@rocicorp/zero/react';
-import { Bold, Code, Italic, List, LoaderCircleIcon, ReplyIcon, SendHorizontalIcon, SendIcon, Underline, XIcon } from 'lucide-react';
+import { Bold, Code, Italic, List, LoaderCircleIcon, ReplyIcon, SendHorizontalIcon, SendIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 interface ChatEvent {
   id: string;
@@ -62,6 +70,7 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
+  const [contextMenuMessageId, setContextMenuMessageId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isZeroClientAvailable = !!z;
@@ -337,7 +346,6 @@ export default function ChatPage() {
         <div className="flex-shrink-0 flex items-center justify-between p-4 bg-card/80 backdrop-blur-md border-b border-muted/30">
           <div className="grid auto-rows-min items-start gap-1">
             <h1 className="text-2xl font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
-            <p className="text-[.9rem] text-muted-foreground">Welcome to the modern chat experience.&rdquo;</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'default' : 'secondary'}>
@@ -415,63 +423,77 @@ export default function ChatPage() {
                 {/* Render messages within the group */}
                 <div className="flex flex-col gap-1">
                   {messageGroup.map((message, messageIndex) => (
-                    <div
-                      key={message.id}
-                      className={`py-1 px-3 rounded-lg ${message.isDeleted ? 'opacity-60 italic bg-destructive/10' : 'bg-card shadow-sm'} border border-muted/20`}
+                    <ContextMenu
+                      key={message.id} // Key is important here for React
+                      onOpenChange={(isOpen) => {
+                        if (isOpen) setContextMenuMessageId(message.id);
+                        else setContextMenuMessageId(null);
+                      }}
                     >
-                      {message.replyToMessageId && (
-                        <div className="mt-1 text-xs text-muted-foreground border-l-2 border-muted pl-2 mb-1">
-                          Replying to: <span className="italic">{combinedMessages.find(m => m.id === message.replyToMessageId)?.text || 'original message'}</span>
-                        </div>
-                      )}
-                      <ReactMarkdown
-                        remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-                        components={{
-                          p: ({ node, ...props }) => <p className="text-foreground mt-1 break-words whitespace-pre-line markdown" {...props} />,
-                          ul: ({ node, ...props }) => <ul className="list-disc list-inside" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="list-decimal list-inside" {...props} />,
-                          li: ({ node, ...props }) => <li {...props} />,
-                          code: ({ node, className, children, ...props }) => {
-                            const CodeWrapper = 'code';
-                            const codeClasses = "relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm prose-code:before:hidden prose-code:after:hidden"
-                            return (
-                              <CodeWrapper className={codeClasses}>
-                                {children}
-                              </CodeWrapper>
-                            );
-                          },
-                        }}
-                      >
-                        {message.text}
-                      </ReactMarkdown>
-                      {/* Action buttons only on the last message in the group */}
-                      {messageIndex === messageGroup.length - 1 && (
-                        <div className="flex gap-2 mt-2">
-                          {!message.isDeleted && (
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="text-primary px-0 h-auto py-0.5"
-                              onClick={() => handleReplyClick(message.id, message.username || 'User')}
-                            >
-                              Reply
-                            </Button>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          className={`px-2 py-px rounded-sm transition-colors hover:bg-secondary
+                            ${message.isDeleted ? 'opacity-50 italic bg-destructive/10 text-muted-foreground line-through' : ''}
+                            border border-muted/20
+                            ${contextMenuMessageId === message.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
+                          `}
+                        >
+                          {message.isDeleted ? (
+                            <span className="text-xs">[Message deleted]</span>
+                          ) : (
+                            <>
+                              {message.replyToMessageId && (
+                                <div className="my-1 text-xs text-muted-foreground border-l-2 border-muted pl-2">
+                                  Replying to: <span className="italic">{combinedMessages.find(m => m.id === message.replyToMessageId)?.text.substring(0, 30) || 'original message'}...</span>
+                                </div>
+                              )}
+                              <ReactMarkdown
+                                remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+                                components={{
+                                  p: ({ node, ...props }) => <p className="text-foreground break-words whitespace-pre-line markdown" {...props} />,
+                                  ul: ({ node, ...props }) => <ul className="list-disc list-inside ml-4" {...props} />,
+                                  ol: ({ node, ...props }) => <ol className="list-decimal list-inside ml-4" {...props} />,
+                                  li: ({ node, ...props }) => <li className="mb-0.5" {...props} />,
+                                  code: ({ node, className, children, ...props }) => (
+                                    <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm prose-code:before:hidden prose-code:after:hidden" {...props}>
+                                      {children}
+                                    </code>
+                                  ),
+                                  u: ({ node, ...props }) => <u {...props} />
+                                }}
+                              >
+                                {message.text}
+                              </ReactMarkdown>
+                            </>
                           )}
+                        </div>
+                      </ContextMenuTrigger>
+                      {!message.isDeleted && ( // Only show context menu for non-deleted messages
+                        <ContextMenuContent className="w-64">
+                          <ContextMenuItem className="px-2 text-xs text-muted-foreground">
+                            <SendHorizontalIcon />{message.createdAt ? new Date(message.createdAt).toLocaleString(undefined, {
+                              dateStyle: 'medium',
+                              timeStyle: 'medium'
+                            }) : 'N/A'}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => handleReplyClick(message.id, message.username || 'User')}
+                          >
+                            <ReplyIcon />Reply
+                          </ContextMenuItem>
                           {((session.user && (session.user as CustomUser).role === 'admin') || false) && !message.isDeleted && z && (
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="text-destructive px-0 h-auto py-0.5"
-                              onClick={() => {
-                                z.mutate.deleteMessage({ messageId: message.id });
-                              }}
-                            >
-                              Delete (Admin)
-                            </Button>
+                            <>
+                              <ContextMenuItem
+                                className="text-destructive"
+                              >
+                                <Trash2Icon className='text-destructive' />Delete Message
+                              </ContextMenuItem>
+                            </>
                           )}
-                        </div>
+                        </ContextMenuContent>
                       )}
-                    </div>
+                    </ContextMenu>
+
                   ))}
                 </div>
               </div>
