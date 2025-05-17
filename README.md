@@ -2,7 +2,7 @@
   <br />
   <div>
     <img src="https://img.shields.io/badge/Next_JS-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
-    <img src="https://img.shields.io/badge/Zero_(Rocicorp)-232F3E?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjRkZGRkZGIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+Um9jaWNvcnA8L3RpdGxlPjxwYXRoIGQ9Ik0xMiAwQzUuMzcyIDAgMCA1LjM3MyAwIDEyczUuMzczIDEyIDEyIDEyIDEyLTUuMzczIDEyLTEyUzE4LjYyNyAwIDEyIDB6bTAgMjEuODMxYy01LjQyMSAwLTkuODM5LTQuNDE4LTkuODM5LTkuODM5UzYuNTc5IDIuMTUzIDEyIDIuMTUzYTkuODM5IDkuODM5IDAgMCAxIDkuODM5IDkuODM5IDkuODM5IDkuODM5IDAgMCAxLTkuODM5IDkuODM4ek04LjQ0MiA3LjQ4NGwtMS4yNTMgMS4xNzUgMy41MyA0LjM0LT MuNTMgNC4zNCAxLjI1MyAxLjE3NSA0LjczMy01LjUxNnoiLz48L3N2Zz4=&logoColor=white" alt="Zero" />
+    <img src="https://img.shields.io/badge/Zero_(Rocicorp)-232F3E?style=for-the-badge&logoColor=white" alt="Zero" />
     <img src="https://img.shields.io/badge/Shadcn/UI-000000?style=for-the-badge&logo=shadcnui&logoColor=white" alt="Shadcn/UI" />
     <img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS" />
     <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
