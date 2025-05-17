@@ -32,7 +32,6 @@ export interface CustomSession extends Session {
   user: CustomUser;
 }
 
-
 export const authConfig = {
   adapter: DrizzleAdapter(typedDb, {
     usersTable: usersTable,
@@ -70,15 +69,14 @@ export const authConfig = {
             eq(usersTable.email, (identifier).toLowerCase()),
             eq(usersTable.username, (identifier))
           ),
-          // Select all columns needed for password verification and to build the Auth.js User object
           columns: {
             id: true,
-            name: true, // Needed for standard Auth.js User object
-            email: true, // Needed for standard Auth.js User object
-            username: true, // Custom field needed for JWT/session
-            hashedPassword: true, // Needed for verification
-            role: true, // Custom field needed for JWT/session
-            image: true, // Needed for standard Auth.js User object
+            name: true,
+            email: true,
+            username: true,
+            hashedPassword: true,
+            role: true,
+            image: true,
           }
         });
         if (!user || !user.hashedPassword) {
@@ -95,11 +93,6 @@ export const authConfig = {
           return null;
         }
 
-        // If authentication is successful, return a User object.
-        // This object is passed to the `jwt` callback.
-        // It should contain at least 'id', and ideally 'name', 'email', 'image'.
-        // Include your custom fields ('role', 'username') here as they will be
-        // added to the token in the `jwt` callback.
         const authorizedUser: CustomUser = {
           id: user.id,
           name: user.name || user.username,
@@ -110,7 +103,7 @@ export const authConfig = {
         };
 
         console.log(`Authorize: User ${user.id} (${user.username}) authenticated successfully.`);
-        return authorizedUser; // Auth.js serializes this into the JWT payload
+        return authorizedUser;
       },
     }),
   ],
@@ -118,7 +111,7 @@ export const authConfig = {
   callbacks: {
     async jwt({ token, user, account, profile, trigger, session }) {
       if (user) {
-        token.sub = user.id; // JWT standard: subject (user ID) - Auth.js usually sets this automatically from user.id
+        token.sub = user.id;
         if (user.email) token.email = user.email;
         if (user.name) token.name = user.name;
         if (user.image) token.picture = user.image;
@@ -136,7 +129,6 @@ export const authConfig = {
         if (token.name) (session.user as unknown as CustomUser).name = token.name as string;
         if (token.picture) (session.user as unknown as CustomUser).image = token.picture as string;
 
-        // Map your custom claims from the token to session.user
         if (token.role) (session.user as unknown as CustomUser).role = token.role as "user" | "admin";
         if (token.username) (session.user as unknown as CustomUser).username = token.username as string;
       } else {
@@ -163,8 +155,6 @@ export const authConfig = {
 
   debug: process.env.NODE_ENV === "development",
   secret: process.env.AUTH_SECRET,
-
-  // cookies: { ... }
 
   events: {
     async signIn(message) { console.log("User signed in:", message.user.id); },

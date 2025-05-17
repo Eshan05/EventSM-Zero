@@ -163,25 +163,12 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
   if (authStatus === 'authenticated' && !currentZeroClientContainer) return <LinesLoader />;
 
 
-  // --- THIS IS THE CORRECTED PART ---
-  // Pass the actual Zero instance, or null if not available.
-  // The ZeroProvider from @rocicorp/zero/react should handle the null case gracefully
-  // by not providing a context, and useZero() should return undefined or throw if used outside.
-  // However, if its type signature `zero: Zero<S, MD>` is strict (no null),
-  // we must ensure we only render it when `currentZeroClientContainer.instance` is available.
   const zeroInstanceForProvider = currentZeroClientContainer ? currentZeroClientContainer.instance : null;
-
   if (authStatus === 'authenticated' && !zeroInstanceForProvider) {
     // This means authenticated, not loading token, no error, but client still not ready.
     // This can happen briefly before the effect creates the client.
     return <LinesLoader />;
   }
-
-  // If the OfficialZeroProvider cannot accept `null`, then we must conditionally render it.
-  // Given the type `zero: Zero<S, MD>;`, it indeed cannot accept `null`.
-  // So, we only render OfficialZeroProvider when we have an instance.
-  // Children that depend on `useZero()` will not render or will handle `z` being undefined
-  // if `OfficialZeroProvider` is not in the tree (e.g. for unauthenticated users).
 
   if (!zeroInstanceForProvider && authStatus !== 'unauthenticated') {
     // This case covers authenticated users for whom the client is not yet ready,
@@ -200,8 +187,5 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // For unauthenticated users or if zeroInstanceForProvider is null for other reasons (e.g. error handled above)
-  // Render children directly; they should handle lack of Zero context.
-  // ChatPage, for instance, checks session status.
   return <>{children}</>;
 }

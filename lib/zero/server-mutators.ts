@@ -3,15 +3,12 @@ import type {
   ServerTransaction,
 } from '@rocicorp/zero/pg';
 
-import type { DrizzleTransactionExecutor } from './drizzle-adapter-pg';
-import { type Schema, createMutators as createClientMutators, type ZeroAuthData, schema } from './config';
-
-import { dbPg as db } from '@/db/config-pg';
-import { messages as messagesTable, events as eventsTable, users as usersTable, blockedWords as blockedWordsTable } from '@/db/schema';
-import { eq, desc } from 'drizzle-orm';
-
-import { Redis } from '@upstash/redis';
+import { events as eventsTable } from '@/db/schema';
 import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+import { eq } from 'drizzle-orm';
+import { type Schema, type ZeroAuthData, createMutators as createClientMutators } from './config';
+import type { DrizzleTransactionExecutor } from './drizzle-adapter-pg';
 
 const redis = Redis.fromEnv();
 const blockedWordsCache: string[] = [];
@@ -29,15 +26,10 @@ export function createServerMutators(
   type AppServerTx = ServerTransaction<Schema, DrizzleTransactionExecutor>;
 
   return {
-    // You can spread clientMutators if you want their ZQL-based DB logic to run on server
     // ...clientMutators, // This would run client mutator logic using ServerTransaction's ZQL capabilities
-
-    // --- Override or Define Server-Specific Mutators ---
-
     addMessage: async (tx: AppServerTx, args: { text: string; replyToId?: string | null; eventId?: string; }) => {
       // `tx.location` will be 'server'
       const userId = authData.sub;
-      // Server-side validation
       if (!userId) throw new Error('Authentication required.');
 
       let eventIdToUse = args.eventId;
@@ -55,15 +47,11 @@ export function createServerMutators(
       const userRatelimit = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, "2s"), prefix: `chat_user_msg_rl_${userId}` });
       const { success: userSuccess } = await userRatelimit.limit(`add_msg_${eventIdToUse}`);
       if (!userSuccess) throw new Error('You are sending messages too quickly.');
-      // ... global rate limit ...
       // TODO: Make this set-able by the admin in the chat interface
       // const globalRatelimit = new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(1, "3s"), prefix: `chat_global_msg_rl` });
       // const { success: globalSuccess } = await globalRatelimit.limit(`add_message_${eventIdToUse}`);
       // if (!globalSuccess) throw new Error('Chat is in slow mode. Please wait.');
 
-      // Word Blocking - use tx.dbTransaction.wrappedTransaction for direct Drizzle query if needed
-      // Or if blockedWords are in Zero schema, use tx.query.blockedWords
-      // For now, using pre-loaded cache:
       // if (blockedWordsCache.some(bw => cleanedText.toLowerCase().includes(bw))) {
       //   throw new Error('Your message contains blocked words.');
       // }
@@ -71,7 +59,6 @@ export function createServerMutators(
       const messageId = crypto.randomUUID();
       const serverTimestamp = Date.now();
 
-      // Use tx.mutate for ZQL-driven DB write (PushProcessor handles patch gen)
       await tx.mutate.messages.insert({
         id: messageId,
         userId: userId,
@@ -112,8 +99,6 @@ export function createServerMutators(
     clearChat: async (tx: AppServerTx, args: { newEventName?: string }) => {
       if (authData.role !== 'admin') throw new Error('Unauthorized.');
 
-      // Use Drizzle directly for complex multi-table updates if easier
-      // `tx.dbTransaction.wrappedTransaction` is your DrizzleTransactionExecutor
       const drizzleTx = tx.dbTransaction.wrappedTransaction;
 
       await drizzleTx.update(eventsTable)
@@ -122,7 +107,7 @@ export function createServerMutators(
 
       const newEventName = args.newEventName || `Chat Session ${new Date().toLocaleString()}`;
       const newEventResult = await drizzleTx.insert(eventsTable).values({
-        id: crypto.randomUUID(), // Drizzle needs ID unless DB generates it and you return it
+        id: crypto.randomUUID(),
         name: newEventName,
         isActive: true,
       }).returning({ id: eventsTable.id, name: eventsTable.name });
@@ -141,8 +126,5 @@ export function createServerMutators(
       console.log("Server Mutator (PushProcessor): clearChat processed. New event:", newEvent.id);
       // For now, assume clients refetch or observe `events` table for active event.
     },
-
-    // ... addBlockedWord, removeBlockedWord using tx.mutate or tx.dbTransaction.wrappedTransaction ...
-
   } as const satisfies ServerCustomMutatorDefs<ServerTransaction<Schema, DrizzleTransactionExecutor>>;
 }
