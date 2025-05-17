@@ -26,6 +26,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { toast } from 'sonner';
 
 interface ChatEvent {
   id: string;
@@ -68,7 +69,7 @@ export default function ChatPage() {
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
   const [isUserListDialogOpen, setIsUserListDialogOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [showPreview, setShowPreview] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
   const [contextMenuMessageId, setContextMenuMessageId] = useState<string | null>(null);
 
@@ -313,6 +314,29 @@ export default function ChatPage() {
     document.getElementById('messageInput')?.focus();
   };
 
+  const handleDelete = (messageId: string) => {
+    setIsDeleting(true);
+    const promise = new Promise((resolve, reject) => {
+      toast('Are you sure you want to delete this message? This cannot be undone.', {
+        duration: 5000,
+        action: {
+          label: 'Delete',
+          onClick: () => {
+            z.mutate.deleteMessage({ messageId: messageId });
+          },
+        },
+        cancel: {
+          label: 'Cancel',
+          onClick: () => {
+            reject('Deletion cancelled');
+          },
+        },
+      });
+    });
+
+    promise.finally(() => setIsDeleting(false));
+  };
+
   // --- Render Loading and Error States ---
   if (authStatus === 'loading') return <LinesLoader />;
   if (authStatus === 'unauthenticated' || !session) return <div className="p-4 text-center">Please sign in to join the chat.</div>;
@@ -343,20 +367,20 @@ export default function ChatPage() {
       )}
       <div className="flex flex-col flex-1 max-w-2xl mx-auto w-full h-full">
         {/* Header */}
-        <header className="-mt-1 flex-shrink-0 border-reflect flex items-center justify-between p-4 pt-5 bg-secondary/40 rounded-b-2xl backdrop-blur-md border-b border-muted/30">
+        <header className="-mt-1 flex-shrink-0 border-reflect bg-transparent flex items-center justify-between p-4 pt-5 rounded-b-2xl backdrop-blur-md border-b border-muted/30">
           <div className="grid auto-rows-min items-start gap-1">
             {(isMessagesDataComplete && isUsersDataComplete) ? <h1 className="text-2xl line-clamp-1 font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
               : <AnimatedShinyText className='text-2xl font-bold tracking-tight'> <span>{'Syncing'}</span></AnimatedShinyText>}
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'default' : 'secondary'}>
+            <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'success-2' : 'secondary'} className='small-caps'>
               {isMessagesDataComplete && isUsersDataComplete ? 'Synced' :
                 (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete') ? 'Error' : 'Syncing...'}
             </Badge>
             {/* Avatar Group and User List Dialog Trigger */}
             {activeUsers.length > 0 && (
               <div
-                className="flex -space-x-2 overflow-hidden cursor-pointer"
+                className="flex -space-x-4 overflow-hidden cursor-pointer"
                 onClick={() => setIsUserListDialogOpen(true)}
                 title={`View ${activeUsers.length} active user(s)`}
               >
@@ -460,7 +484,7 @@ export default function ChatPage() {
                                       {children}
                                     </code>
                                   ),
-                                  u: ({ node, ...props }) => <u {...props} />
+                                  u: ({ node, children, ...props }) => <u className='underline' {...props}>{children}</u>
                                 }}
                               >
                                 {message.text}
@@ -469,7 +493,7 @@ export default function ChatPage() {
                           )}
                         </div>
                       </ContextMenuTrigger>
-                      {!message.isDeleted && ( // Only show context menu for non-deleted messages
+                      {!message.isDeleted && (
                         <ContextMenuContent className="w-64">
                           <ContextMenuItem className="px-2 text-xs text-muted-foreground">
                             <SendHorizontalIcon />{message.createdAt ? new Date(message.createdAt).toLocaleString(undefined, {
@@ -486,6 +510,7 @@ export default function ChatPage() {
                             <>
                               <ContextMenuItem
                                 className="text-destructive"
+                                onClick={() => handleDelete(message.id)}
                               >
                                 <Trash2Icon className='text-destructive' />Delete Message
                               </ContextMenuItem>
@@ -494,7 +519,6 @@ export default function ChatPage() {
                         </ContextMenuContent>
                       )}
                     </ContextMenu>
-
                   ))}
                 </div>
               </div>
@@ -533,7 +557,7 @@ export default function ChatPage() {
               }}
             />
             <aside className='flex gap-1.5'>
-              <Emojis />
+              <Emojis onEmojiSelectAction={handleEmojiSelect} />
               <Button
                 type="submit"
                 disabled={isSending || !newMessageText.trim() || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}

@@ -5,6 +5,7 @@ import { signOut } from "@/lib/auth"
 import AccordionComponent from '@/components/origin-accordion';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { ModeToggle } from "@/components/mode-toggle";
 
 export default function Home() {
   return (
@@ -18,6 +19,7 @@ export default function Home() {
             <Button>View</Button>
           </Link>
           <Button onClick={() => signOut()} variant={'outline'}>Logout</Button>
+          <ModeToggle />
         </section>
       </header>
       <div className='flex items-center justify-center'>
