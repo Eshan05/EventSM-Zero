@@ -27,7 +27,7 @@ const items: AccordionItem[] = [
     title: 'What is this?',
     content: (
       <span>
-        This is a demonstration of using Zero (Rocicorp) which is a sync engine to power a realtime chat. It has Neon for it's primary database, and <code>node-postgres</code> as well as <code>auth.js</code>. It is just a learning project for me to see how Zero (still in alpha) works in the real world. It is not a highly optimized application though.
+        This is a demonstration of using Zero (Rocicorp) which is a sync engine to power a realtime chat. It has Neon for it&apos;s primary database, and <code>node-postgres</code> as well as <code>auth.js</code>. It is just a learning project for me to see how Zero (still in alpha) works in the real world. It is not a highly optimized application though.
       </span>
     ),
   },

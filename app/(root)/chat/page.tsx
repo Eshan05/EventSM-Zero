@@ -343,9 +343,10 @@ export default function ChatPage() {
       )}
       <div className="flex flex-col flex-1 max-w-2xl mx-auto w-full h-full">
         {/* Header */}
-        <div className="flex-shrink-0 flex items-center justify-between p-4 bg-card/80 backdrop-blur-md border-b border-muted/30">
+        <header className="-mt-1 flex-shrink-0 border-reflect flex items-center justify-between p-4 pt-5 bg-secondary/40 rounded-b-2xl backdrop-blur-md border-b border-muted/30">
           <div className="grid auto-rows-min items-start gap-1">
-            <h1 className="text-2xl font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
+            {(isMessagesDataComplete && isUsersDataComplete) ? <h1 className="text-2xl line-clamp-1 font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
+              : <AnimatedShinyText className='text-2xl font-bold tracking-tight'> <span>{'Syncing'}</span></AnimatedShinyText>}
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'default' : 'secondary'}>
@@ -378,7 +379,7 @@ export default function ChatPage() {
               </div>
             )}
           </div>
-        </div>
+        </header>
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
@@ -421,7 +422,7 @@ export default function ChatPage() {
                   </span>
                 </div>
                 {/* Render messages within the group */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-0.5">
                   {messageGroup.map((message, messageIndex) => (
                     <ContextMenu
                       key={message.id} // Key is important here for React
@@ -513,7 +514,7 @@ export default function ChatPage() {
             <Button variant="ghost" size="sm" onClick={() => setReplyToId(null)} className="p-1 h-auto text-xs"><XIcon className="w-4 h-4" /></Button>
           </div>
         )}
-        <div className="flex border-reflect relative rounded-t-lg p-1 pb-0 backdrop-blur-lg flex-col top-0 shadow-lg border border-muted/30 lg:w-1/2 2xl:w-xl mx-auto w-[90%] md:w-2/3 sm:w-3/4 translate-y-1">
+        <div className="flex border-reflect relative rounded-t-lg p-1 pb-0 backdrop-blur-lg flex-col top-0 shadow-lg border border-muted/30 lg:w-1/2 2xl:w-xl mx-auto w-full md:w-2/3 sm:w-3/4 translate-y-1">
           <div className="flex relative p-1 items-start gap-2">
             <Textarea
               id="messageInput"
