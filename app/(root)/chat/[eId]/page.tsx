@@ -1,5 +1,6 @@
 'use client';
 
+import { BannedList, MutedList, ParticipantList } from '@/app/(root)/chat/[eId]/participants';
 import LinesLoader from '@/components/linesLoader';
 import { AnimatedShinyText } from '@/components/magicui/animated-shiny-text';
 import { Avatar } from '@/components/ui/avatar';
@@ -15,12 +16,12 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Emojis from '@/components/ui/emoji';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
+import { ActiveParticipant, BannedParticipant, CategorizedParticipants, MutedParticipant } from '@/types/participants';
 import { useQuery } from '@rocicorp/zero/react';
 import { formatDistanceToNow } from 'date-fns';
 import { BanIcon, Bold, ClockIcon, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, UserIcon, XIcon } from 'lucide-react';
@@ -60,25 +61,6 @@ interface MessageForUI extends RawZeroMessage {
   userImage: string | null;
 }
 
-interface ActiveParticipant {
-  id: string;
-  username: string;
-  image: string | null;
-}
-interface MutedParticipant extends ActiveParticipant {
-  mutedUntil: string;
-  mutedBy: string;
-}
-interface BannedParticipant extends ActiveParticipant {
-  bannedAt?: string;
-  bannedBy: string;
-}
-interface CategorizedParticipants {
-  active: ActiveParticipant[];
-  muted: MutedParticipant[];
-  banned: BannedParticipant[];
-}
-
 export default function ChatPage({ params }: { params: Promise<{ eId: string }> }) {
   const { eId } = use(params);
   const { data: session, status: authStatus } = useSession();
@@ -102,6 +84,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   const [userToBan, setUserToBan] = useState<{ id: string; username: string } | null>(null);
   const [isBanDialogOpen, setIsBanDialogOpen] = useState(false);
   const [isBanned, setIsBanned] = useState(false);
+  const [isParticipantsDialogOpen, setIsParticipantsDialogOpen] = useState(false);
 
   const isZeroClientAvailable = !!z;
   const isAdmin = (session?.user as CustomUser)?.role === 'admin';
@@ -110,6 +93,40 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     setErrorMessages(prev => [...prev, message]);
     setTimeout(() => setErrorMessages(prev => prev.filter(m => m !== message)), 5000);
   }, []);
+
+  const onMute = useCallback((userId: string, username: string) => {
+    setIsParticipantsDialogOpen(false); // Close participant list
+    setTimeout(() => { // Use timeout to prevent dialog animation clash
+      setUserToMute({ id: userId, username });
+      setIsMuteDialogOpen(true);
+    }, 150);
+  }, []);
+
+  const onBan = useCallback((userId: string, username: string) => {
+    setIsParticipantsDialogOpen(false);
+    setTimeout(() => {
+      setUserToBan({ id: userId, username });
+      setIsBanDialogOpen(true);
+    }, 150);
+  }, []);
+
+  const onUnmute = useCallback((userId: string, username: string) => {
+    const promise = z.mutate.unmuteUser({ userId, eventId: eId }).server;
+    toast.promise(promise, {
+      loading: `Unmuting ${username}...`,
+      success: () => `${username} has been unmuted.`,
+      error: (err) => `Failed to unmute: ${err.message}`,
+    });
+  }, [z, eId]);
+
+  const onUnban = useCallback((userId: string, username: string) => {
+    const promise = z.mutate.unbanUser({ userId, eventId: eId }).server;
+    toast.promise(promise, {
+      loading: `Unbanning ${username}...`,
+      success: () => `${username} has been unbanned.`,
+      error: (err) => `Failed to unban: ${err.message}`,
+    });
+  }, [z, eId]);
 
   const handleMuteConfirm = useCallback(async (durationInSeconds: number) => {
     if (!z || !userToMute) return;
@@ -198,7 +215,18 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
 
   const isMessagesDataComplete = messagesResultDetails && messagesResultDetails.type === 'complete';
   const isUsersDataComplete = usersResultDetails && usersResultDetails.type === 'complete';
-
+  const fetchParticipants = useCallback(() => {
+    if (!isAdmin) return;
+    setIsParticipantListLoading(true);
+    fetch(`/api/events/${eId}/participants`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        setParticipants(data);
+      })
+      .catch(err => toast.error(`Failed to load participant list: ${err.message}`))
+      .finally(() => setIsParticipantListLoading(false));
+  }, [eId, isAdmin]);
 
   // Refined loading condition
   const isInitialDataLoading =
@@ -718,13 +746,13 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                 {isParticipantListLoading ? <LinesLoader /> : (
                   <>
                     <TabsContent value="active" className="max-h-96 overflow-y-auto">
-                      <ParticipantList users={activeUsers ?? []} />
+                      <ParticipantList users={activeUsers ?? []} onMute={onMute} onBan={onBan} />
                     </TabsContent>
                     <TabsContent value="muted" className="max-h-96 overflow-y-auto">
-                      <MutedList users={participants?.muted ?? []} />
+                      <MutedList users={participants?.muted ?? []} onUnmute={onUnmute} onMute={onMute} />
                     </TabsContent>
                     <TabsContent value="banned" className="max-h-96 overflow-y-auto">
-                      <BannedList users={participants?.banned ?? []} />
+                      <BannedList users={participants?.banned ?? []} onUnban={onUnban} />
                     </TabsContent>
                   </>
                 )}
@@ -856,73 +884,3 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   );
 }
 
-const ParticipantList = ({ users }: { users: ActiveParticipant[] }) => {
-  if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
-  return (
-    <div className="space-y-3 p-1">
-      {users.map(user => (
-        <div key={user.id} className="flex items-center gap-3">
-          <Avatar className="size-8">
-            {user.image ? <img src={user.image} alt={user.username} /> : <UserIcon />}
-          </Avatar>
-          <span>{user.username}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const MutedList = ({ users }: { users: MutedParticipant[] }) => {
-  if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>User</TableHead>
-          <TableHead>Mute Expires</TableHead>
-          <TableHead>Muted By</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {users.map(user => (
-          <TableRow key={user.id}>
-            <TableCell className="font-medium">{user.username}</TableCell>
-            <TableCell>
-              <div className="flex items-center gap-1.5 text-yellow-500">
-                <ClockIcon className="h-4 w-4" />
-                {formatDistanceToNow(new Date(user.mutedUntil), { addSuffix: true })}
-              </div>
-            </TableCell>
-            <TableCell>{user.mutedBy}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-};
-
-const BannedList = ({ users }: { users: BannedParticipant[] }) => {
-  if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>User</TableHead>
-          <TableHead>Banned At</TableHead>
-          <TableHead>Banned By</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {users.map(user => (
-          <TableRow key={user.id}>
-            <TableCell className="font-medium text-destructive">{user.username}</TableCell>
-            <TableCell>
-              {user.bannedAt ? new Date(user.bannedAt).toLocaleString() : 'N/A'}
-            </TableCell>
-            <TableCell>{user.bannedBy}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-};

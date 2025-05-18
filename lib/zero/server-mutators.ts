@@ -189,6 +189,25 @@ export function createServerMutators(
       console.log(`Server Mutator: User ${args.userId} in event ${args.eventId} muted.`);
     },
 
+    unmuteUser: async (tx: AppServerTx, args: { userId: string; eventId: string; }) => {
+      if (authData.role !== 'admin') throw new Error('Unauthorized.');
+      if (!args.userId || !args.eventId) throw new Error('User ID and Event ID are required.');
+
+      await tx.dbTransaction.wrappedTransaction
+        .update(eventParticipantsTable)
+        .set({
+          mutedUntil: null,
+          mutedByUserId: null,
+        })
+        .where(
+          and(
+            eq(eventParticipantsTable.userId, args.userId),
+            eq(eventParticipantsTable.eventId, args.eventId)
+          )
+        );
+      console.log(`Server Mutator: User ${args.userId} UNMUTED from event ${args.eventId}.`);
+    },
+
     banUser: async (tx: AppServerTx, args: { userId: string; eventId: string; }) => {
       if (authData.role !== 'admin') throw new Error('Unauthorized.');
       if (!args.userId || !args.eventId) throw new Error('User ID and Event ID are required.');

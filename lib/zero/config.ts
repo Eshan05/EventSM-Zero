@@ -97,6 +97,10 @@ export function createMutators(authData?: ZeroAuthData) {
       if (!authData?.sub) return;
       console.log(`Client: Sending 'muteUser' request for user ${args.userId} in event ${args.eventId} for ${args.durationInSeconds}s.`);
     },
+    unmuteUser: async (tx: Transaction<Schema>, args: { userId: string, eventId: string }) => {
+      if (!authData?.sub) return;
+      console.log(`Client: Sending 'unmuteUser' request for user ${args.userId} in event ${args.eventId}.`);
+    },
     banUser: async (tx: Transaction<Schema>, args: { userId: string, eventId: string }) => {
       if (!authData?.sub) return;
       console.log(`Client: Sending 'banUser' request for user ${args.userId} in event ${args.eventId}.`);
