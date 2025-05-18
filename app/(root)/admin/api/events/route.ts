@@ -22,6 +22,8 @@ export async function POST(request: NextRequest) {
     const newEvent = await db.insert(eventsTable).values({
       name: name,
       isActive: true,
+      codeName: `event-${Date.now()}`,
+      description: `Event created at ${new Date().toISOString()}`,
     }).returning({ id: eventsTable.id, name: eventsTable.name, isActive: eventsTable.isActive });
 
     if (!newEvent[0]) {
