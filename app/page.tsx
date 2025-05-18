@@ -15,7 +15,7 @@ export default function Home() {
           Realtime Chat with <Link href={'https://zero.rocicorp.dev/'}>Zero</Link>
         </h1>
         <section className="mt-4 flex-center-2">
-          <Link href='/chat'>
+          <Link href='/events'>
             <Button>View</Button>
           </Link>
           <Button onClick={() => signOut()} variant={'outline'}>Logout</Button>

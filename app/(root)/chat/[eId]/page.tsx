@@ -20,7 +20,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
 import { useQuery } from '@rocicorp/zero/react';
-import { Bold, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
+import { BanIcon, Bold, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -74,8 +74,12 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
   const [contextMenuMessageId, setContextMenuMessageId] = useState<string | null>(null);
+
   const [userToMute, setUserToMute] = useState<{ id: string; username: string } | null>(null);
   const [isMuteDialogOpen, setIsMuteDialogOpen] = useState(false);
+  const [userToBan, setUserToBan] = useState<{ id: string; username: string } | null>(null);
+  const [isBanDialogOpen, setIsBanDialogOpen] = useState(false);
+  const [isBanned, setIsBanned] = useState(false);
 
   const isZeroClientAvailable = !!z;
 
@@ -107,10 +111,36 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     });
   }, [z, userToMute, eId]);
 
+  const handleBanConfirm = useCallback(async () => {
+    if (!z || !userToBan) return;
+    setIsBanDialogOpen(false);
+
+    const promise = z.mutate.banUser({
+      userId: userToBan.id,
+      eventId: eId,
+    }).server;
+
+    toast.promise(promise, {
+      loading: `Banning ${userToBan.username}...`,
+      success: () => {
+        setUserToBan(null);
+        return `${userToBan.username} has been banned from this event.`;
+      },
+      error: (err) => {
+        setUserToBan(null);
+        return `Failed to ban: ${err.message}`;
+      },
+    });
+  }, [z, userToBan, eId]);
+
   useEffect(() => {
     if (authStatus === 'authenticated' && eId) {
       fetch(`/api/events/${eId}`)
         .then(async res => {
+          if (res.status === 403) {
+            setIsBanned(true);
+            return null;
+          }
           if (!res.ok) {
             const errBody = await res.json().catch(() => ({ message: `HTTP error ${res.status}` }));
             throw new Error(errBody.message || `Failed to fetch event details: ${res.status}`);
@@ -269,6 +299,16 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     setIsMuteDialogOpen(true);
   };
 
+  const handleBanClick = (userId: string, username: string) => {
+    if (!userId) {
+      toast.error("Cannot ban user: User ID is missing.");
+      return;
+    }
+    setUserToBan({ id: userId, username });
+    setIsBanDialogOpen(true);
+  };
+
+
   const handleEmojiSelect = useCallback((emojiObject: { emoji: string; label: string; }) => {
     const emoji = emojiObject.emoji;
     const textarea = textareaRef.current;
@@ -379,6 +419,9 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   if (!isZeroClientAvailable) {
     console.log("ChatPage: Zero client (z) is not available from useZero(). Waiting or error in provider.");
     return <LinesLoader />;
+  }
+  if (isBanned) {
+    return <div className="p-4 text-center">You have been banned from this event.</div>;
   }
   if (!currentEvent && authStatus === 'authenticated') {
     return <LinesLoader />;
@@ -549,6 +592,13 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                               </ContextMenuItem>
                               <ContextMenuItem
                                 className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                onSelect={() => handleBanClick(message.userId!, message.username)}
+                              >
+                                <BanIcon />
+                                <span>Ban User</span>
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
                                 onSelect={() => handleDelete(message.id)}
                               >
                                 <Trash2Icon />
@@ -585,6 +635,20 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setIsMuteDialogOpen(false)}>Cancel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={isBanDialogOpen} onOpenChange={setIsBanDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Ban {userToBan?.username || 'User'}</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to ban this user? They will be unable to send or see messages in this event. This can be undone from the admin panel.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="sm:justify-end gap-2">
+              <Button variant="ghost" onClick={() => setIsBanDialogOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleBanConfirm}>Confirm Ban</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

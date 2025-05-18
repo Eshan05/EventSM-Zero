@@ -189,5 +189,52 @@ export function createServerMutators(
       console.log(`Server Mutator: User ${args.userId} in event ${args.eventId} muted.`);
     },
 
+    banUser: async (tx: AppServerTx, args: { userId: string; eventId: string; }) => {
+      if (authData.role !== 'admin') throw new Error('Unauthorized.');
+      if (!args.userId || !args.eventId) throw new Error('User ID and Event ID are required.');
+
+      const targetUser = await tx.query.users.where('id', args.userId).one();
+      if (!targetUser || targetUser.role === 'admin') throw new Error('Cannot ban this user.');
+
+      await tx.dbTransaction.wrappedTransaction
+        .insert(eventParticipants)
+        .values({
+          userId: args.userId,
+          eventId: args.eventId,
+          isBanned: true,
+          bannedByUserId: authData.sub,
+          bannedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [eventParticipants.userId, eventParticipants.eventId],
+          set: {
+            isBanned: true,
+            bannedByUserId: authData.sub,
+            bannedAt: new Date(),
+          },
+        });
+      console.log(`Server Mutator: User ${args.userId} BANNED from event ${args.eventId}.`);
+    },
+
+    unbanUser: async (tx: AppServerTx, args: { userId: string; eventId: string; }) => {
+      if (authData.role !== 'admin') throw new Error('Unauthorized.');
+      if (!args.userId || !args.eventId) throw new Error('User ID and Event ID are required.');
+
+      await tx.dbTransaction.wrappedTransaction
+        .update(eventParticipantsTable)
+        .set({
+          isBanned: false,
+          bannedByUserId: null,
+          bannedAt: null,
+        })
+        .where(
+          and(
+            eq(eventParticipantsTable.userId, args.userId),
+            eq(eventParticipantsTable.eventId, args.eventId)
+          )
+        );
+      console.log(`Server Mutator: User ${args.userId} UNBANNED from event ${args.eventId}.`);
+    },
+
   } as const satisfies ServerCustomMutatorDefs<ServerTransaction<Schema, DrizzleTransactionExecutor>>;
 }

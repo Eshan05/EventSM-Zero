@@ -93,10 +93,17 @@ export function createMutators(authData?: ZeroAuthData) {
       console.log(`Client: Sending 'removeBlockedWord' request for: ${args.word}`);
     },
 
-
     muteUser: async (tx: Transaction<Schema>, args: { userId: string, eventId: string, durationInSeconds: number }) => {
       if (!authData?.sub) return;
       console.log(`Client: Sending 'muteUser' request for user ${args.userId} in event ${args.eventId} for ${args.durationInSeconds}s.`);
+    },
+    banUser: async (tx: Transaction<Schema>, args: { userId: string, eventId: string }) => {
+      if (!authData?.sub) return;
+      console.log(`Client: Sending 'banUser' request for user ${args.userId} in event ${args.eventId}.`);
+    },
+    unbanUser: async (tx: Transaction<Schema>, args: { userId: string, eventId: string }) => {
+      if (!authData?.sub) return;
+      console.log(`Client: Sending 'unbanUser' request for user ${args.userId} in event ${args.eventId}.`);
     },
 
   } as const satisfies CustomMutatorDefs<Schema>;

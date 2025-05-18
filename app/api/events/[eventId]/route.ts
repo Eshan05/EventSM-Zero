@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { events as eventsTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { eventParticipants, events as eventsTable } from '@/db/schema';
+import { and, eq } from 'drizzle-orm';
 import { typedDb as db } from '@/lib/utils.server';
 import { auth } from '@/lib/auth';
 
@@ -32,6 +32,18 @@ export async function GET(
 
     if (!event) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+    }
+
+    const participation = await db.query.eventParticipants.findFirst({
+      where: and(
+        eq(eventParticipants.userId, session.user.id),
+        eq(eventParticipants.eventId, eventId)
+      ),
+      columns: { isBanned: true }
+    });
+
+    if (participation?.isBanned) {
+      return NextResponse.json({ error: 'You are banned from this event.' }, { status: 403 });
     }
 
     return NextResponse.json(event);
