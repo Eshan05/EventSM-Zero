@@ -12,8 +12,11 @@ export async function GET(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const pM = await params;
+  if (!pM)
+    return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
 
-  const { eventId } = params;
+  const { eventId } = pM;
   if (!eventId) {
     return NextResponse.json({ error: 'Event ID is required' }, { status: 400 });
   }

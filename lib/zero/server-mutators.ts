@@ -109,6 +109,8 @@ export function createServerMutators(
       const newEventResult = await drizzleTx.insert(eventsTable).values({
         id: crypto.randomUUID(),
         name: newEventName,
+        codeName: `event-${Date.now()}`,
+        description: `Event created at ${new Date().toISOString()}`,
         isActive: true,
       }).returning({ id: eventsTable.id, name: eventsTable.name });
 

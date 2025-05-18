@@ -15,6 +15,7 @@ import { relations } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters"
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
+export const currentPresenceEnum = pgEnum("presenceEnum", ["offline", "online", "away"]);
 
 export const users = pgTable(
   "users",
@@ -73,8 +74,8 @@ export const accounts = pgTable(
 
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
-  codeName: varchar("code_name", { length: 50 }).notNull().unique(),
-  description: text("description").notNull().default(""),
+  codeName: varchar("code_name", { length: 50 }).unique(),
+  description: text("description").default(""),
   name: varchar("name", { length: 255 }),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
@@ -84,6 +85,32 @@ export const events = pgTable("events", {
 
 export type SEvent = typeof events.$inferSelect;
 export type SEventInsert = typeof events.$inferInsert;
+
+export const eventParticipants = pgTable('event_participants',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+
+    isBanned: boolean('is_banned').default(false).notNull(),
+    bannedByUserId: uuid('banned_by_user_id').references(() => users.id),
+    bannedAt: timestamp('banned_at', { mode: 'date', withTimezone: true }),
+    mutedUntil: timestamp('muted_until', { mode: 'date', withTimezone: true }),
+    mutedByUserId: uuid('muted_by_user_id').references(() => users.id),
+
+    customCooldownSeconds: integer('custom_cooldown_seconds'),
+    role: userRoleEnum('role').default('user').notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    currentPresence: currentPresenceEnum('presence').default('offline').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idx: primaryKey({ columns: [table.userId, table.eventId] }),
+    eventIdx: index("participant_event_idx").on(table.eventId),
+    userIdx: index("participant_user_idx").on(table.userId),
+  })
+);
 
 export const messages = pgTable(
   "messages",
@@ -140,7 +167,11 @@ export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
   messages: many(messages), // A user can have many messages
   blockedWordsAdded: many(blockedWords, { relationName: 'blockedWordsAddedByAdmin' }), // Admin who added blocked words
-  messagesDeletedBy: many(messages, { relationName: 'messageDeletion' })
+  messagesDeletedBy: many(messages, { relationName: 'messageDeletion' }),
+
+  eventParticipations: many(eventParticipants, { relationName: 'userEventParticipation' }),
+  mutesGiven: many(eventParticipants, { relationName: 'adminMuteActions' }),
+  bansGiven: many(eventParticipants, { relationName: 'adminBanActions' }),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -177,6 +208,34 @@ export const blockedWordsRelations = relations(blockedWords, ({ one }) => ({
     relationName: 'blockedWordsAddedByAdmin',
     fields: [blockedWords.addedByUserId],
     references: [users.id],
+  }),
+}));
+
+export const eventsRelations = relations(events, ({ many }) => ({
+  messages: many(messages),
+  participants: many(eventParticipants, { relationName: 'eventParticipants' }),
+}));
+
+export const eventParticipantsRelations = relations(eventParticipants, ({ one }) => ({
+  user: one(users, {
+    fields: [eventParticipants.userId],
+    references: [users.id],
+    relationName: 'userEventParticipation'
+  }),
+  event: one(events, {
+    fields: [eventParticipants.eventId],
+    references: [events.id],
+    relationName: 'eventParticipants'
+  }),
+  mutedByAdmin: one(users, {
+    fields: [eventParticipants.mutedByUserId],
+    references: [users.id],
+    relationName: 'adminMuteActions'
+  }),
+  bannedByAdmin: one(users, {
+    fields: [eventParticipants.bannedByUserId],
+    references: [users.id],
+    relationName: 'adminBanActions'
   }),
 }));
 

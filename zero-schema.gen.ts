@@ -11,7 +11,7 @@
  * ## your linter and/or formatter to prevent it from being  ##
  * ## checked or modified.                                   ##
  * ##                                                        ##
- * ## SOURCE: https://github.com/BriefHQ/drizzle-zero        ##
+ * ## SOURCE: https://github.com/0xcadams/drizzle-zero        ##
  * ------------------------------------------------------------
  */
 
@@ -24,6 +24,84 @@ import type { default as zeroSchema } from "./drizzle-zero.config";
  */
 export const schema = {
     "tables": {
+        "eventParticipants": {
+            "name": "eventParticipants",
+            "columns": {
+                "userId": {
+                    "type": "string",
+                    "optional": false,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "userId">,
+                    "serverName": "user_id"
+                },
+                "eventId": {
+                    "type": "string",
+                    "optional": false,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "eventId">,
+                    "serverName": "event_id"
+                },
+                "isBanned": {
+                    "type": "boolean",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "isBanned">,
+                    "serverName": "is_banned"
+                },
+                "bannedByUserId": {
+                    "type": "string",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "bannedByUserId">,
+                    "serverName": "banned_by_user_id"
+                },
+                "bannedAt": {
+                    "type": "number",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "bannedAt">,
+                    "serverName": "banned_at"
+                },
+                "mutedUntil": {
+                    "type": "number",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "mutedUntil">,
+                    "serverName": "muted_until"
+                },
+                "mutedByUserId": {
+                    "type": "string",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "mutedByUserId">,
+                    "serverName": "muted_by_user_id"
+                },
+                "customCooldownSeconds": {
+                    "type": "number",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "customCooldownSeconds">,
+                    "serverName": "custom_cooldown_seconds"
+                },
+                "role": {
+                    "type": "string",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "role">
+                },
+                "lastSeenAt": {
+                    "type": "number",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "lastSeenAt">,
+                    "serverName": "last_seen_at"
+                },
+                "currentPresence": {
+                    "type": "string",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "currentPresence">,
+                    "serverName": "presence"
+                },
+                "createdAt": {
+                    "type": "number",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "eventParticipants", "createdAt">,
+                    "serverName": "created_at"
+                }
+            },
+            "primaryKey": ["userId", "eventId"],
+            "serverName": "event_participants"
+        },
         "events": {
             "name": "events",
             "columns": {
@@ -31,6 +109,17 @@ export const schema = {
                     "type": "string",
                     "optional": true,
                     "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "events", "id">
+                },
+                "codeName": {
+                    "type": "string",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "events", "codeName">,
+                    "serverName": "code_name"
+                },
+                "description": {
+                    "type": "string",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "events", "description">
                 },
                 "name": {
                     "type": "string",
@@ -133,6 +222,16 @@ export const schema = {
         }
     },
     "relationships": {
+        "eventParticipants": {
+            "user": [{ "sourceField": ["userId"], "destField": ["id"], "destSchema": "users", "cardinality": "one" }],
+            "event": [{ "sourceField": ["eventId"], "destField": ["id"], "destSchema": "events", "cardinality": "one" }],
+            "mutedByAdmin": [{ "sourceField": ["mutedByUserId"], "destField": ["id"], "destSchema": "users", "cardinality": "one" }],
+            "bannedByAdmin": [{ "sourceField": ["bannedByUserId"], "destField": ["id"], "destSchema": "users", "cardinality": "one" }]
+        },
+        "events": {
+            "messages": [{ "sourceField": ["id"], "destField": ["eventId"], "destSchema": "messages", "cardinality": "many" }],
+            "participants": [{ "sourceField": ["id"], "destField": ["eventId"], "destSchema": "eventParticipants", "cardinality": "many" }]
+        },
         "messages": {
             "event": [{ "sourceField": ["eventId"], "destField": ["id"], "destSchema": "events", "cardinality": "one" }],
             "user": [{ "sourceField": ["userId"], "destField": ["id"], "destSchema": "users", "cardinality": "one" }],
@@ -142,7 +241,10 @@ export const schema = {
         },
         "users": {
             "messages": [{ "sourceField": ["id"], "destField": ["userId"], "destSchema": "messages", "cardinality": "many" }],
-            "messagesDeletedBy": [{ "sourceField": ["id"], "destField": ["deletedByUserId"], "destSchema": "messages", "cardinality": "many" }]
+            "messagesDeletedBy": [{ "sourceField": ["id"], "destField": ["deletedByUserId"], "destSchema": "messages", "cardinality": "many" }],
+            "eventParticipations": [{ "sourceField": ["id"], "destField": ["userId"], "destSchema": "eventParticipants", "cardinality": "many" }],
+            "mutesGiven": [{ "sourceField": ["id"], "destField": ["mutedByUserId"], "destSchema": "eventParticipants", "cardinality": "many" }],
+            "bansGiven": [{ "sourceField": ["id"], "destField": ["bannedByUserId"], "destSchema": "eventParticipants", "cardinality": "many" }]
         }
     }
 } as const;

@@ -1,5 +1,6 @@
 import { drizzleZeroConfig } from 'drizzle-zero';
 import * as drizzleSchema from './db/schema.ts';
+import { is } from 'drizzle-orm';
 
 export default drizzleZeroConfig(drizzleSchema, {
   tables: {
@@ -18,8 +19,26 @@ export default drizzleZeroConfig(drizzleSchema, {
     events: {
       id: true,
       name: true,
+      codeName: true,
+      description: true,
       isActive: true,
       createdAt: false,
+    },
+    eventParticipants: {
+      idx: true,
+      userId: true,
+      eventId: true,
+      customCooldownSeconds: true,
+      role: true,
+      lastSeenAt: true,
+      currentPresence: true,
+      createdAt: true,
+
+      mutedUntil: true,
+      mutedByUserId: true,
+      isBanned: true,
+      bannedAt: true,
+      bannedByUserId: true
     },
     messages: {
       id: true,
