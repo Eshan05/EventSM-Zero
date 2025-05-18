@@ -45,7 +45,7 @@ export async function middleware(req: NextRequest) {
   // const token = await getToken({ req, secret: process.env.AUTH_SECRET });
   // console.log(`${LOG_CTX} Token fetched.`, token);
   const session = await auth();
-  console.log(session)
+  // console.log(session)
   const isAuthenticated = !!session;
   // const userRole = token?.role;
   // const userId = token?.sub;

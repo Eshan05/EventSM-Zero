@@ -129,9 +129,15 @@ export const permissions = definePermissions<ZeroAuthData, Schema>(schema, () =>
     { cmp }: ExpressionBuilder<Schema, 'users' | 'events' | 'messages'> // 'any' if the table isn't fixed for this rule
   ) => {
     if (!isAuthenticated(auth)) return cmp('id', '=', '__NEVER_MATCH__'); // Deny if not authenticated
-    // Allows access to any row if authenticated; specific filtering happens client-side or in query.
-    // `id != null` is a common way to express "allow all rows that exist"
     return cmp('id', 'IS NOT', null);
+  };
+
+  const allowIfAuthenticated_hasUserId = (
+    auth: ZeroAuthData | undefined,
+    { cmp }: ExpressionBuilder<Schema, 'eventParticipants'>
+  ) => {
+    if (!isAuthenticated(auth)) return cmp('userId', '=', '__NEVER_MATCH__');
+    return cmp('userId', 'IS NOT', null);
   };
 
   // Rule: User can only insert messages as themselves.
@@ -173,6 +179,15 @@ export const permissions = definePermissions<ZeroAuthData, Schema>(schema, () =>
     return cmp('id', 'IS NOT', null); // Admin can delete any existing message
   };
 
+  // Rule: Only admins can read event participant rows on the client
+  const allowAdminParticipantsSelectRule = (
+    auth: ZeroAuthData | undefined,
+    { cmp }: ExpressionBuilder<Schema, 'eventParticipants'>
+  ) => {
+    if (!isAdmin(auth)) return cmp('eventId', '=', '__NEVER_MATCH__');
+    return cmp('eventId', 'IS NOT', null);
+  };
+
   return {
     users: {
       row: {
@@ -201,6 +216,26 @@ export const permissions = definePermissions<ZeroAuthData, Schema>(schema, () =>
         // For optimistic client-side `tx.mutate.messages.update` to mark as deleted,
         // the update rules above are more relevant.
         delete: [allowAdminToDeleteRule],
+      },
+    },
+    eventParticipants: {
+      row: {
+        // Expose participant rows to admins so the admin UI can query them in realtime
+        select: [allowIfAuthenticated_hasUserId],
+        update: {
+          preMutation: [
+            (auth, { cmp }) => {
+              if (!isAdmin(auth)) return cmp('userId', '=', '__NEVER_MATCH__');
+              return cmp('userId', 'IS NOT', null);
+            }
+          ],
+          postMutation: [
+            (auth, { cmp }) => {
+              if (!isAdmin(auth)) return cmp('userId', '=', '__NEVER_MATCH__');
+              return cmp('userId', 'IS NOT', null);
+            }
+          ],
+        },
       },
     },
     // blockedWords and accounts are not synced to client as per drizzle-zero.config.ts

@@ -15,6 +15,8 @@ import {
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { LiaUsersSolid } from "react-icons/lia";
+import { BiUserVoice } from "react-icons/bi";
 import Emojis from '@/components/ui/emoji';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -202,36 +204,94 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   // We destructure it into const variables.
   const [rawMessages, messagesResultDetails] = useQuery(z?.query.messages.orderBy('createdAt', 'asc'));
   const [rawUsers, usersResultDetails] = useQuery(z?.query.users.orderBy('username', 'asc'));
-  const [participants, setParticipants] = useState<CategorizedParticipants | null>(null);
-  const [isParticipantListLoading, setIsParticipantListLoading] = useState(false);
+  const [participantsStatus, participantsResultDetails] = useQuery(
+    z?.query.eventParticipants.where('eventId', '=', eId)
+  );
 
   useEffect(() => {
     console.log('ZERO DATA: messages query update:', { data: rawMessages, details: messagesResultDetails });
-  }, [rawMessages, messagesResultDetails]);
-
-  useEffect(() => {
     console.log('ZERO DATA: users query update:', { data: rawUsers, details: usersResultDetails });
-  }, [rawUsers, usersResultDetails]);
+  }, [rawMessages, messagesResultDetails, rawUsers, usersResultDetails]);
+
+  const userStatusMap = useMemo(() => {
+    const map = new Map<string, { isBanned: boolean; mutedUntil: number | null }>();
+    if (!participantsStatus) return map;
+    for (const p of participantsStatus) {
+      map.set(p.userId, { isBanned: p.isBanned ?? false, mutedUntil: p.mutedUntil ?? null });
+    }
+    return map;
+  }, [participantsStatus]);
 
   const isMessagesDataComplete = messagesResultDetails && messagesResultDetails.type === 'complete';
   const isUsersDataComplete = usersResultDetails && usersResultDetails.type === 'complete';
-  const fetchParticipants = useCallback(() => {
-    if (!isAdmin) return;
-    setIsParticipantListLoading(true);
-    fetch(`/api/events/${eId}/participants`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) throw new Error(data.error);
-        setParticipants(data);
-      })
-      .catch(err => toast.error(`Failed to load participant list: ${err.message}`))
-      .finally(() => setIsParticipantListLoading(false));
-  }, [eId, isAdmin]);
+
+  const categorizedParticipants = useMemo(() => {
+    const initial: CategorizedParticipants = { active: [], all: [], muted: [], banned: [] };
+    if (!participantsStatus || !rawUsers) return initial;
+
+    const usersMap = new Map<string, { username: string; image: string | null }>();
+    for (const user of rawUsers) {
+      usersMap.set(user.id!, { username: user.username, image: user.image });
+    }
+
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const result: CategorizedParticipants = { active: [], all: [], muted: [], banned: [] };
+
+    for (const p of participantsStatus) {
+      const user = usersMap.get(p.userId);
+      if (!user) continue;
+
+      const isActive = (p.lastSeenAt ?? 0) > fiveMinutesAgo;
+
+      const participantData = {
+        id: p.userId,
+        username: user.username,
+        image: user.image,
+        isActive: isActive,
+      };
+
+      if (p.isBanned) {
+        const bannedByAdmin = usersMap.get(p.bannedByUserId || '');
+        result.banned.push({
+          ...participantData,
+          bannedAt: p.bannedAt ? new Date(p.bannedAt).toISOString() : 'Unknown',
+          bannedBy: bannedByAdmin?.username || 'Unknown',
+        });
+        continue;
+      }
+
+      if (p.mutedUntil && p.mutedUntil > Date.now()) {
+        const mutedByAdmin = usersMap.get(p.mutedByUserId || '');
+        result.muted.push({
+          ...participantData,
+          mutedUntil: p.mutedUntil ? new Date(p.mutedUntil).toISOString() : 'Unknown',
+          mutedBy: mutedByAdmin?.username || 'Unknown',
+        });
+        // Muted users are not in 'active' or 'all' lists
+      } else {
+        // If not muted or banned, add to the 'All' list
+        result.all.push(participantData);
+        // If also active, add to the 'Active' list
+        if (isActive) {
+          result.active.push(participantData);
+        }
+      }
+    }
+
+    result.active.sort((a, b) => a.username.localeCompare(b.username));
+    result.all.sort((a, b) => a.username.localeCompare(b.username));
+    result.muted.sort((a, b) => a.username.localeCompare(b.username));
+    result.banned.sort((a, b) => a.username.localeCompare(b.username));
+
+    return result;
+  }, [participantsStatus, rawUsers]);
 
   // Refined loading condition
   const isInitialDataLoading =
     (authStatus === 'authenticated' && currentEvent && z) &&
     (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete');
+
+  const isParticipantListLoading = (participantsResultDetails?.type !== 'complete');
 
   // Determine active users based on messages in the current event
   const activeUsers = useMemo((): RawZeroUser[] => {
@@ -384,17 +444,6 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
 
   const handleOpenParticipantDialog = () => {
     setIsUserListDialogOpen(true);
-    if (isAdmin) {
-      setIsParticipantListLoading(true);
-      fetch(`/api/events/${eId}/participants`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.error) throw new Error(data.error);
-          setParticipants(data);
-        })
-        .catch(err => toast.error(`Failed to load participant list: ${err.message}`))
-        .finally(() => setIsParticipantListLoading(false));
-    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -737,22 +786,43 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
               </DialogDescription>
             </DialogHeader>
             {isAdmin ? (
-              <Tabs defaultValue="active" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="active">Active ({activeUsers.length ?? 0})</TabsTrigger>
-                  <TabsTrigger value="muted">Muted ({participants?.muted.length ?? 0})</TabsTrigger>
-                  <TabsTrigger value="banned">Banned ({participants?.banned.length ?? 0})</TabsTrigger>
+              <Tabs defaultValue="all" className="w-full">
+                <TabsList className="grid w-full grid-cols-4 items-center">
+                  <TabsTrigger value="all"><LiaUsersSolid />
+                    <Badge
+                      variant='outline'
+                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
+                    >{categorizedParticipants.all.length ?? 0}</Badge></TabsTrigger>
+                  <TabsTrigger value="active" className='relative'><BiUserVoice />
+                    <Badge
+                      variant='success-2'
+                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
+                    >{categorizedParticipants?.active.length ?? 0}
+                    </Badge></TabsTrigger>
+                  <TabsTrigger value="muted"><MicOffIcon />
+                    <Badge
+                      variant='yellow'
+                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
+                    >{categorizedParticipants?.muted.length ?? 0}</Badge></TabsTrigger>
+                  <TabsTrigger value="banned"><BanIcon />
+                    <Badge
+                      variant='destructive-2'
+                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
+                    >{categorizedParticipants?.banned.length ?? 0}</Badge></TabsTrigger>
                 </TabsList>
                 {isParticipantListLoading ? <LinesLoader /> : (
                   <>
+                    <TabsContent value="all" className="max-h-96 overflow-y-auto">
+                      <ParticipantList users={categorizedParticipants.all ?? []} onMute={onMute} onBan={onBan} />
+                    </TabsContent>
                     <TabsContent value="active" className="max-h-96 overflow-y-auto">
-                      <ParticipantList users={activeUsers ?? []} onMute={onMute} onBan={onBan} />
+                      <ParticipantList users={categorizedParticipants.active ?? []} onMute={onMute} onBan={onBan} />
                     </TabsContent>
                     <TabsContent value="muted" className="max-h-96 overflow-y-auto">
-                      <MutedList users={participants?.muted ?? []} onUnmute={onUnmute} onMute={onMute} />
+                      <MutedList users={categorizedParticipants?.muted ?? []} onUnmute={onUnmute} onMute={onMute} />
                     </TabsContent>
                     <TabsContent value="banned" className="max-h-96 overflow-y-auto">
-                      <BannedList users={participants?.banned ?? []} onUnban={onUnban} />
+                      <BannedList users={categorizedParticipants?.banned ?? []} onUnban={onUnban} />
                     </TabsContent>
                   </>
                 )}

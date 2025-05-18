@@ -36,7 +36,7 @@ export default drizzleZeroConfig(drizzleSchema, {
       mutedByUserId: true,
       isBanned: true,
       bannedAt: true,
-      bannedByUserId: true
+      bannedByUserId: true,
     },
     messages: {
       id: true,
