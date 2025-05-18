@@ -1,4 +1,3 @@
-// lib/zero/config.ts
 import {
   definePermissions,
   type CustomMutatorDefs,
@@ -15,9 +14,9 @@ export type Schema = typeof schema;
 
 
 export interface ZeroAuthData {
-  sub: string;    // User ID (subject claim from JWT)
-  role: string;   // User role (e.g., 'admin', 'user')
-  username: string; // Username from JWT (ensure it's included)
+  sub: string;    // User ID 
+  role: string;   // User role 
+  username: string; // Username from JWT 
 }
 
 // --- Client-Side Mutator Definitions ---
@@ -92,6 +91,12 @@ export function createMutators(authData?: ZeroAuthData) {
       if (!authData?.sub) return;
       if (!args.word || args.word.trim() === "") return;
       console.log(`Client: Sending 'removeBlockedWord' request for: ${args.word}`);
+    },
+
+
+    muteUser: async (tx: Transaction<Schema>, args: { userId: string, eventId: string, durationInSeconds: number }) => {
+      if (!authData?.sub) return;
+      console.log(`Client: Sending 'muteUser' request for user ${args.userId} in event ${args.eventId} for ${args.durationInSeconds}s.`);
     },
 
   } as const satisfies CustomMutatorDefs<Schema>;

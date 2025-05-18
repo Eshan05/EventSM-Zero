@@ -1,6 +1,5 @@
 import { drizzleZeroConfig } from 'drizzle-zero';
 import * as drizzleSchema from './db/schema.ts';
-import { is } from 'drizzle-orm';
 
 export default drizzleZeroConfig(drizzleSchema, {
   tables: {
@@ -25,7 +24,6 @@ export default drizzleZeroConfig(drizzleSchema, {
       createdAt: false,
     },
     eventParticipants: {
-      idx: true,
       userId: true,
       eventId: true,
       customCooldownSeconds: true,

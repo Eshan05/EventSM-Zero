@@ -9,16 +9,18 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Emojis from '@/components/ui/emoji';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
 import { useQuery } from '@rocicorp/zero/react';
-import { Bold, Code, Italic, List, LoaderCircleIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
+import { Bold, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -72,6 +74,8 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
   const [contextMenuMessageId, setContextMenuMessageId] = useState<string | null>(null);
+  const [userToMute, setUserToMute] = useState<{ id: string; username: string } | null>(null);
+  const [isMuteDialogOpen, setIsMuteDialogOpen] = useState(false);
 
   const isZeroClientAvailable = !!z;
 
@@ -79,6 +83,29 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     setErrorMessages(prev => [...prev, message]);
     setTimeout(() => setErrorMessages(prev => prev.filter(m => m !== message)), 5000);
   }, []);
+
+  const handleMuteConfirm = useCallback(async (durationInSeconds: number) => {
+    if (!z || !userToMute) return;
+    setIsMuteDialogOpen(false);
+
+    const promise = z.mutate.muteUser({
+      userId: userToMute.id,
+      eventId: eId,
+      durationInSeconds: durationInSeconds,
+    }).server;
+
+    toast.promise(promise, {
+      loading: `Muting ${userToMute.username}...`,
+      success: () => {
+        setUserToMute(null);
+        return `${userToMute.username} has been muted in this event.`;
+      },
+      error: (err) => {
+        setUserToMute(null);
+        return `Failed to mute: ${err.message}`;
+      },
+    });
+  }, [z, userToMute, eId]);
 
   useEffect(() => {
     if (authStatus === 'authenticated' && eId) {
@@ -232,6 +259,15 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
       textarea.selectionStart = textarea.selectionEnd = cursorPosition;
     });
   }, [setNewMessageText]);
+
+  const handleMuteClick = (userId: string, username: string) => {
+    if (!userId) {
+      toast.error("Cannot mute user: User ID is missing.");
+      return;
+    }
+    setUserToMute({ id: userId, username });
+    setIsMuteDialogOpen(true);
+  };
 
   const handleEmojiSelect = useCallback((emojiObject: { emoji: string; label: string; }) => {
     const emoji = emojiObject.emoji;
@@ -405,7 +441,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
         </header>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+        <div className="flex-1 overflow-y-auto p-4 pb-28 space-y-4 no-scrollbar scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
           {(!isMessagesDataComplete || !isUsersDataComplete) && (
             <div className="text-center text-destructive-foreground bg-destructive/80 p-3 rounded-md">
               Error loading chat data: Data not complete or failed to load.&rdquo;
@@ -416,7 +452,6 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
               No messages yet. Be the first to say something!
             </div>
           )}
-          {/* Render Grouped Messages */}
           {combinedMessages.reduce<Array<Array<MessageForUI>>>((groups, message, index) => {
             if (index === 0 || message.userId !== combinedMessages[index - 1].userId) {
               groups.push([message]);
@@ -426,7 +461,6 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
             return groups;
           }, []).map((messageGroup, groupIndex) => (
             <div key={groupIndex} className="flex items-start gap-3 mb-4 last:mb-0">
-              {/* Avatar for the first message in the group */}
               <Avatar className="size-9 shrink-0 mt-1">
                 {messageGroup[0].userImage ? (
                   <img src={messageGroup[0].userImage} alt={messageGroup[0].username} className="object-cover w-full h-full rounded-full" />
@@ -437,18 +471,16 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                 )}
               </Avatar>
               <div className="flex-1 min-w-0">
-                {/* Username and timestamp for the first message in the group */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-semibold text-sm text-primary">{messageGroup[0].username}</span>
                   <span className="text-xs text-muted-foreground">
                     {messageGroup[0].createdAt !== null ? new Date(messageGroup[0].createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                   </span>
                 </div>
-                {/* Render messages within the group */}
                 <div className="flex flex-col gap-0.5">
                   {messageGroup.map((message, messageIndex) => (
                     <ContextMenu
-                      key={message.id} // Key is important here for React
+                      key={message.id}
                       onOpenChange={(isOpen) => {
                         if (isOpen) setContextMenuMessageId(message.id);
                         else setContextMenuMessageId(null);
@@ -507,11 +539,20 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                           </ContextMenuItem>
                           {((session.user && (session.user as CustomUser).role === 'admin') || false) && !message.isDeleted && z && (
                             <>
+                              <ContextMenuSeparator />
                               <ContextMenuItem
-                                className="text-destructive"
-                                onClick={() => handleDelete(message.id)}
+                                className="text-yellow-500 focus:text-yellow-600 focus:bg-yellow-500/10"
+                                onSelect={() => handleMuteClick(message.userId!, message.username)}
                               >
-                                <Trash2Icon className='text-destructive' />Delete Message
+                                <MicOffIcon />
+                                <span>Mute User</span>
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                onSelect={() => handleDelete(message.id)}
+                              >
+                                <Trash2Icon />
+                                <span>Delete Message</span>
                               </ContextMenuItem>
                             </>
                           )}
@@ -527,6 +568,26 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
         </div>
 
         {/* Floating Input Area and Reply Indicator */}
+        <Dialog open={isMuteDialogOpen} onOpenChange={setIsMuteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Mute {userToMute?.username || 'User'}</DialogTitle>
+              <DialogDescription>
+                Select a duration to prevent this user from sending messages in this event.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <Button variant="outline" onClick={() => handleMuteConfirm(60)}>1 Minute</Button>
+              <Button variant="outline" onClick={() => handleMuteConfirm(300)}>5 Minutes</Button>
+              <Button variant="outline" onClick={() => handleMuteConfirm(900)}>15 Minutes</Button>
+              <Button variant="outline" onClick={() => handleMuteConfirm(3600)}>1 Hour</Button>
+              <Button variant="destructive" className="col-span-2" onClick={() => handleMuteConfirm(86400)}>24 Hours</Button>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsMuteDialogOpen(false)}>Cancel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
       <section className="flex-shrink-0 w-full mx-auto p-2 pb-0 fixed bottom-0 ">
         {replyToId && (

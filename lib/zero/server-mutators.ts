@@ -3,10 +3,10 @@ import type {
   ServerTransaction,
 } from '@rocicorp/zero/pg';
 
-import { events as eventsTable } from '@/db/schema';
+import { events as eventsTable, eventParticipants as eventParticipantsTable, eventParticipants } from '@/db/schema';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { type Schema, type ZeroAuthData, createMutators as createClientMutators } from './config';
 import type { DrizzleTransactionExecutor } from './drizzle-adapter-pg';
 
@@ -40,6 +40,22 @@ export function createServerMutators(
         eventIdToUse = eventResult!.id!;
       }
       if (!eventIdToUse) throw new Error('No active chat event or eventId not provided.');
+
+      const participation = await tx.query.eventParticipants
+        .where('userId', userId)
+        .where('eventId', eventIdToUse)
+        .one();
+
+      if (participation) {
+        if (participation.isBanned) {
+          throw new Error('You are banned from this event.');
+        }
+        if (participation.mutedUntil && participation.mutedUntil > Date.now()) {
+          const remainingSeconds = Math.ceil((participation.mutedUntil - Date.now()) / 1000);
+          throw new Error(`You are muted in this event for another ${remainingSeconds} seconds.`);
+        }
+      }
+
       if (!args.text?.trim()) throw new Error('Message text cannot be empty.');
       const cleanedText = args.text.trim();
 
@@ -55,6 +71,21 @@ export function createServerMutators(
       // if (blockedWordsCache.some(bw => cleanedText.toLowerCase().includes(bw))) {
       //   throw new Error('Your message contains blocked words.');
       // }
+
+      const now = new Date();
+      await tx.dbTransaction.wrappedTransaction
+        .insert(eventParticipantsTable)
+        .values({
+          userId: userId,
+          eventId: eventIdToUse,
+          lastSeenAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [eventParticipantsTable.userId, eventParticipantsTable.eventId],
+          set: {
+            lastSeenAt: now,
+          },
+        });
 
       const messageId = crypto.randomUUID();
       const serverTimestamp = Date.now();
@@ -128,5 +159,35 @@ export function createServerMutators(
       console.log("Server Mutator (PushProcessor): clearChat processed. New event:", newEvent.id);
       // For now, assume clients refetch or observe `events` table for active event.
     },
+
+    muteUser: async (tx: AppServerTx, args: { userId: string; eventId: string; durationInSeconds: number }) => {
+      if (authData.role !== 'admin') throw new Error('Unauthorized.');
+      // ... (argument validation)
+
+      const targetUser = await tx.query.users.where('id', args.userId).one();
+      if (!targetUser || targetUser.role === 'admin') throw new Error('Cannot mute this user.');
+
+      const muteUntilDate = new Date(Date.now() + args.durationInSeconds * 1000);
+
+      // Upsert into the eventParticipants table to set the mute status.
+      await tx.dbTransaction.wrappedTransaction
+        .insert(eventParticipants)
+        .values({
+          userId: args.userId,
+          eventId: args.eventId,
+          mutedUntil: muteUntilDate,
+          mutedByUserId: authData.sub,
+        })
+        .onConflictDoUpdate({
+          target: [eventParticipantsTable.userId, eventParticipantsTable.eventId],
+          set: {
+            mutedUntil: muteUntilDate,
+            mutedByUserId: authData.sub,
+          },
+        });
+
+      console.log(`Server Mutator: User ${args.userId} in event ${args.eventId} muted.`);
+    },
+
   } as const satisfies ServerCustomMutatorDefs<ServerTransaction<Schema, DrizzleTransactionExecutor>>;
 }
