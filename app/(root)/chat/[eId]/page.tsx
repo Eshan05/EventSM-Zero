@@ -15,12 +15,15 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Emojis from '@/components/ui/emoji';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
 import { useQuery } from '@rocicorp/zero/react';
-import { BanIcon, Bold, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { BanIcon, Bold, ClockIcon, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, UserIcon, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -57,6 +60,25 @@ interface MessageForUI extends RawZeroMessage {
   userImage: string | null;
 }
 
+interface ActiveParticipant {
+  id: string;
+  username: string;
+  image: string | null;
+}
+interface MutedParticipant extends ActiveParticipant {
+  mutedUntil: string;
+  mutedBy: string;
+}
+interface BannedParticipant extends ActiveParticipant {
+  bannedAt?: string;
+  bannedBy: string;
+}
+interface CategorizedParticipants {
+  active: ActiveParticipant[];
+  muted: MutedParticipant[];
+  banned: BannedParticipant[];
+}
+
 export default function ChatPage({ params }: { params: Promise<{ eId: string }> }) {
   const { eId } = use(params);
   const { data: session, status: authStatus } = useSession();
@@ -82,6 +104,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   const [isBanned, setIsBanned] = useState(false);
 
   const isZeroClientAvailable = !!z;
+  const isAdmin = (session?.user as CustomUser)?.role === 'admin';
 
   const addErrorMessage = useCallback((message: string) => {
     setErrorMessages(prev => [...prev, message]);
@@ -162,6 +185,8 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   // We destructure it into const variables.
   const [rawMessages, messagesResultDetails] = useQuery(z?.query.messages.orderBy('createdAt', 'asc'));
   const [rawUsers, usersResultDetails] = useQuery(z?.query.users.orderBy('username', 'asc'));
+  const [participants, setParticipants] = useState<CategorizedParticipants | null>(null);
+  const [isParticipantListLoading, setIsParticipantListLoading] = useState(false);
 
   useEffect(() => {
     console.log('ZERO DATA: messages query update:', { data: rawMessages, details: messagesResultDetails });
@@ -173,6 +198,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
 
   const isMessagesDataComplete = messagesResultDetails && messagesResultDetails.type === 'complete';
   const isUsersDataComplete = usersResultDetails && usersResultDetails.type === 'complete';
+
 
   // Refined loading condition
   const isInitialDataLoading =
@@ -328,6 +354,21 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     });
   }, [setNewMessageText]);
 
+  const handleOpenParticipantDialog = () => {
+    setIsUserListDialogOpen(true);
+    if (isAdmin) {
+      setIsParticipantListLoading(true);
+      fetch(`/api/events/${eId}/participants`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) throw new Error(data.error);
+          setParticipants(data);
+        })
+        .catch(err => toast.error(`Failed to load participant list: ${err.message}`))
+        .finally(() => setIsParticipantListLoading(false));
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const textToSend = newMessageText.trim();
@@ -421,7 +462,13 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     return <LinesLoader />;
   }
   if (isBanned) {
-    return <div className="p-4 text-center">You have been banned from this event.</div>;
+    return <div className="flex flex-col items-center justify-center h-screen bg-background text-foreground">
+      <div className="text-center p-8 border border-destructive/50 bg-destructive/10 rounded-lg">
+        <BanIcon className="mx-auto h-16 w-16 text-destructive" />
+        <h1 className="mt-4 text-2xl font-bold">Access Denied</h1>
+        <p className="mt-2 text-muted-foreground">You have been banned from this chat event.</p>
+      </div>
+    </div>
   }
   if (!currentEvent && authStatus === 'authenticated') {
     return <LinesLoader />;
@@ -459,7 +506,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
             {activeUsers.length > 0 && (
               <div
                 className="flex -space-x-4 overflow-hidden cursor-pointer"
-                onClick={() => setIsUserListDialogOpen(true)}
+                onClick={handleOpenParticipantDialog}
                 title={`View ${activeUsers.length} active user(s)`}
               >
                 {activeUsers.slice(0, 3).map(user => (
@@ -480,6 +527,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                 )}
               </div>
             )}
+
           </div>
         </header>
 
@@ -652,6 +700,42 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <Dialog open={isUserListDialogOpen} onOpenChange={setIsUserListDialogOpen}>
+          <DialogContent className="sm:max-w-lg max-h-[80vh] rounded overflow-scroll no-scrollbar">
+            <DialogHeader>
+              <DialogTitle>Event Participants</DialogTitle>
+              <DialogDescription>
+                {isAdmin ? 'Manage and view all participants.' : 'Users currently active in this chat.'}
+              </DialogDescription>
+            </DialogHeader>
+            {isAdmin ? (
+              <Tabs defaultValue="active" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="active">Active ({activeUsers.length ?? 0})</TabsTrigger>
+                  <TabsTrigger value="muted">Muted ({participants?.muted.length ?? 0})</TabsTrigger>
+                  <TabsTrigger value="banned">Banned ({participants?.banned.length ?? 0})</TabsTrigger>
+                </TabsList>
+                {isParticipantListLoading ? <LinesLoader /> : (
+                  <>
+                    <TabsContent value="active" className="max-h-96 overflow-y-auto">
+                      <ParticipantList users={activeUsers ?? []} />
+                    </TabsContent>
+                    <TabsContent value="muted" className="max-h-96 overflow-y-auto">
+                      <MutedList users={participants?.muted ?? []} />
+                    </TabsContent>
+                    <TabsContent value="banned" className="max-h-96 overflow-y-auto">
+                      <BannedList users={participants?.banned ?? []} />
+                    </TabsContent>
+                  </>
+                )}
+              </Tabs>
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                <ParticipantList users={activeUsers} />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
       <section className="flex-shrink-0 w-full mx-auto p-2 pb-0 fixed bottom-0 ">
         {replyToId && (
@@ -735,30 +819,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
       </section>
 
       {/* User List Dialog */}
-      <Dialog open={isUserListDialogOpen} onOpenChange={setIsUserListDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Active Users ({activeUsers.length})</DialogTitle>
-            <DialogDescription>Current users in this chat.</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-60 overflow-y-auto space-y-3">
-            {activeUsers.map(user => (
-              <div key={user.id} className="flex items-center gap-3">
-                <Avatar className="size-8">
-                  {user.image ? (
-                    <img src={user.image} alt={user.username || 'User'} className="object-cover w-full h-full rounded-full" />
-                  ) : (
-                    <span className="flex items-center justify-center w-full h-full text-sm font-semibold bg-primary text-primary-foreground rounded-full">
-                      {user.username?.[0]?.toUpperCase() || '?'}
-                    </span>
-                  )}
-                </Avatar>
-                <span>{user.username || 'Unknown User'}</span>
-              </div>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Markdown Preview Dialog */}
       <Dialog open={isPreviewDialogOpen} onOpenChange={setIsPreviewDialogOpen}>
@@ -794,3 +855,74 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     </div>
   );
 }
+
+const ParticipantList = ({ users }: { users: ActiveParticipant[] }) => {
+  if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
+  return (
+    <div className="space-y-3 p-1">
+      {users.map(user => (
+        <div key={user.id} className="flex items-center gap-3">
+          <Avatar className="size-8">
+            {user.image ? <img src={user.image} alt={user.username} /> : <UserIcon />}
+          </Avatar>
+          <span>{user.username}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const MutedList = ({ users }: { users: MutedParticipant[] }) => {
+  if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>User</TableHead>
+          <TableHead>Mute Expires</TableHead>
+          <TableHead>Muted By</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {users.map(user => (
+          <TableRow key={user.id}>
+            <TableCell className="font-medium">{user.username}</TableCell>
+            <TableCell>
+              <div className="flex items-center gap-1.5 text-yellow-500">
+                <ClockIcon className="h-4 w-4" />
+                {formatDistanceToNow(new Date(user.mutedUntil), { addSuffix: true })}
+              </div>
+            </TableCell>
+            <TableCell>{user.mutedBy}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+};
+
+const BannedList = ({ users }: { users: BannedParticipant[] }) => {
+  if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>User</TableHead>
+          <TableHead>Banned At</TableHead>
+          <TableHead>Banned By</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {users.map(user => (
+          <TableRow key={user.id}>
+            <TableCell className="font-medium text-destructive">{user.username}</TableCell>
+            <TableCell>
+              {user.bannedAt ? new Date(user.bannedAt).toLocaleString() : 'N/A'}
+            </TableCell>
+            <TableCell>{user.bannedBy}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+};
