@@ -73,6 +73,8 @@ export const accounts = pgTable(
 
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
+  codeName: varchar("code_name", { length: 50 }).notNull().unique(),
+  description: text("description").notNull().default(""),
   name: varchar("name", { length: 255 }),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
