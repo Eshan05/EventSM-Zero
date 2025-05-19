@@ -16,6 +16,7 @@ import type { AdapterAccountType } from "next-auth/adapters"
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 export const currentPresenceEnum = pgEnum("presenceEnum", ["offline", "online", "away"]);
+export const eventStateEnum = pgEnum("event_state", ["active", "inactive", "scheduled", "deleted", "archived"]);
 
 export const users = pgTable(
   "users",
@@ -79,6 +80,15 @@ export const events = pgTable("events", {
   name: varchar("name", { length: 255 }),
   isActive: boolean("is_active").default(true).notNull(),
   slowModeSeconds: integer("slow_mode_seconds").default(0).notNull(),
+
+  state: eventStateEnum("state").default("scheduled").notNull(),
+  tags: text("tags").default(""),
+  venue: varchar("venue", { length: 255 }),
+  startTime: timestamp("start_time", { mode: "date", withTimezone: true }),
+  reportingTime: timestamp("reporting_time", { mode: "date", withTimezone: true }),
+  endTime: timestamp("end_time", { mode: "date", withTimezone: true }),
+  isPublic: boolean("is_public").default(true).notNull(),
+
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
