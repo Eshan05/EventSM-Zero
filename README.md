@@ -86,13 +86,13 @@ pnpm dev
 - Feel free to raise issues if you notice anything wrong
 
 *   [ ] Full implementation of Slow Mode controls per user and global.
-*   [ ] User timeout/mute functionality for admins.
+*   [X] User timeout/mute functionality for admins.
 *   [ ] Comprehensive blocked words filter.
 *   [ ] Better markdown implementation and reply system
-*   [ ] User presence indicators.
+*   [X] User presence indicators.
 *   [ ] Sound notifications for new messages.
 *   [ ] More detailed admin analytics.
 *   [ ] Customizable user profiles.
-*   [ ] Support for multiple chat rooms/events simultaneously and event details/categories.
+*   [X] Support for multiple chat rooms/events simultaneously and event details/categories.
 *   [ ] Polls or Q&A features within chat.
 *   [ ] Image link shows as actual image

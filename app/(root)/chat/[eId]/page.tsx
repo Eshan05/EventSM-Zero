@@ -410,6 +410,50 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     }
   }, [combinedMessages]);
 
+  const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
+
+  const getDelimiters = (format: string) => {
+    switch (format) {
+      case 'bold': return { start: '**', end: '**' };
+      case 'italic': return { start: '*', end: '*' };
+      case 'underline': return { start: '<u>', end: '</u>' };
+      case 'code': return { start: '`', end: '`' };
+      case 'list': return { start: '- ', end: '' };
+      default: return { start: '', end: '' };
+    }
+  };
+
+  const detectActiveFormats = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return new Set<string>();
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = textarea.value.substring(start, end);
+    const active = new Set<string>();
+
+    // Check each format
+    ['bold', 'italic', 'underline', 'code', 'list'].forEach(format => {
+      const delimiters = getDelimiters(format);
+
+      if (selectedText) {
+        // Check if selected text has formatting
+        if (selectedText.startsWith(delimiters.start) && selectedText.endsWith(delimiters.end)) {
+          active.add(format);
+        }
+      } else {
+        // Check if cursor is between delimiters
+        const textBefore = textarea.value.substring(0, start);
+        const textAfter = textarea.value.substring(start);
+        if (textBefore.endsWith(delimiters.start) && textAfter.startsWith(delimiters.end)) {
+          active.add(format);
+        }
+      }
+    });
+
+    return active;
+  }, []);
+
   const handleFormatClick = useCallback((format: 'bold' | 'italic' | 'underline' | 'code' | 'list') => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -422,42 +466,90 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     let newText = textarea.value;
     let cursorPosition = start;
 
-    switch (format) {
-      case 'bold':
-        newText = `${prefix}**${selectedText}**${suffix}`;
-        cursorPosition = start + 2 + selectedText.length;
-        break;
-      case 'italic':
-        newText = `${prefix}*${selectedText}*${suffix}`;
-        cursorPosition = start + 1 + selectedText.length;
-        break;
-      case 'underline':
-        newText = `${prefix}<u>${selectedText}</u>${suffix}`;
-        cursorPosition = start + 3 + selectedText.length;
-        break;
-      case 'code':
-        // For inline code
-        newText = `${prefix}\`${selectedText}\`${suffix}`;
-        cursorPosition = start + 1 + selectedText.length;
-        break;
-      case 'list':
-        // Simple unordered list item
-        const lineStart = textarea.value.lastIndexOf('\n', start - 1) + 1;
-        if (start === lineStart) { // If at the start of a line
-          newText = `${prefix}- ${selectedText}${suffix}`;
-          cursorPosition = start + 2 + selectedText.length;
-        } else { // Insert on a new line
-          newText = `${prefix}\n- ${selectedText}${suffix}`;
-          cursorPosition = start + 3 + selectedText.length;
+    // Check if we're toggling off an existing format
+    const currentActiveFormats = detectActiveFormats();
+    const isActive = currentActiveFormats.has(format);
+
+    if (isActive) {
+      // Remove formatting
+      const delimiters = getDelimiters(format);
+
+      if (selectedText && selectedText.startsWith(delimiters.start) && selectedText.endsWith(delimiters.end)) {
+        // Remove formatting from selected text
+        const innerText = selectedText.slice(delimiters.start.length, -delimiters.end.length);
+        newText = `${prefix}${innerText}${suffix}`;
+        cursorPosition = start + innerText.length;
+      } else if (!selectedText) {
+        // Look for delimiters around cursor position
+        const textBefore = textarea.value.substring(0, start);
+        const textAfter = textarea.value.substring(start);
+
+        // Check if cursor is between delimiters
+        if (textBefore.endsWith(delimiters.start) && textAfter.startsWith(delimiters.end)) {
+          newText = textBefore.slice(0, -delimiters.start.length) + textAfter.slice(delimiters.end.length);
+          cursorPosition = start - delimiters.start.length;
+        } else {
+          // No formatting found, add it
+          newText = `${prefix}${delimiters.start}${delimiters.end}${suffix}`;
+          cursorPosition = start + delimiters.start.length;
         }
-        break;
+      } else {
+        // Selected text doesn't have formatting, add it
+        newText = `${prefix}${delimiters.start}${selectedText}${delimiters.end}${suffix}`;
+        cursorPosition = start + delimiters.start.length + selectedText.length + delimiters.end.length;
+      }
+    } else {
+      // Add formatting
+      const delimiters = getDelimiters(format);
+
+      if (selectedText) {
+        // Wrap selected text
+        newText = `${prefix}${delimiters.start}${selectedText}${delimiters.end}${suffix}`;
+        cursorPosition = start + delimiters.start.length + selectedText.length + delimiters.end.length;
+      } else {
+        // Insert delimiters with cursor in between
+        newText = `${prefix}${delimiters.start}${delimiters.end}${suffix}`;
+        cursorPosition = start + delimiters.start.length;
+      }
     }
 
     setNewMessageText(newText);
+
+    // Update active formats state
+    setActiveFormats(prev => {
+      const newSet = new Set(prev);
+      if (isActive) {
+        newSet.delete(format);
+      } else {
+        newSet.add(format);
+      }
+      return newSet;
+    });
+
     requestAnimationFrame(() => {
+      textarea.focus();
       textarea.selectionStart = textarea.selectionEnd = cursorPosition;
     });
-  }, [setNewMessageText]);
+  }, [setNewMessageText, detectActiveFormats]);
+
+  useEffect(() => {
+    const updateActiveFormats = () => {
+      setActiveFormats(detectActiveFormats());
+    };
+
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.addEventListener('selectionchange', updateActiveFormats);
+      textarea.addEventListener('input', updateActiveFormats);
+      textarea.addEventListener('keyup', updateActiveFormats);
+
+      return () => {
+        textarea.removeEventListener('selectionchange', updateActiveFormats);
+        textarea.removeEventListener('input', updateActiveFormats);
+        textarea.removeEventListener('keyup', updateActiveFormats);
+      };
+    }
+  }, [detectActiveFormats]);
 
   const handleMuteClick = (userId: string, username: string) => {
     if (!userId) {
@@ -534,6 +626,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
 
       setNewMessageText('');
       setReplyToId(null);
+      setActiveFormats(new Set()); // Reset active formats
 
       await mutation.server
         .then(() => {
@@ -985,7 +1078,7 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
           {/* Formatting, Emoji, and Preview Row */}
           <div className="flex items-center justify-between mb-2 px-1">
             <div className="flex items-center gap-1">
-              <ToggleGroup type="multiple" size="sm" className="gap-1">
+              <ToggleGroup type="multiple" size="sm" className="gap-1" value={Array.from(activeFormats)}>
                 <ToggleGroupItem value="bold" aria-label="Toggle bold" onClick={() => handleFormatClick('bold')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
                   <Bold className="h-4 w-4" />
                 </ToggleGroupItem>
