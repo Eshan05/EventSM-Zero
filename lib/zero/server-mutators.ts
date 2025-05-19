@@ -41,6 +41,37 @@ export function createServerMutators(
       }
       if (!eventIdToUse) throw new Error('No active chat event or eventId not provided.');
 
+      if (authData.role !== 'admin') {
+        const event = await tx.query.events.where('id', eventIdToUse).one();
+        const participationResult = await tx.query.eventParticipants
+          .where('userId', authData.sub)
+          .where('eventId', eventIdToUse)
+          .one();
+
+        const eventCooldown = event?.slowModeSeconds ?? 0;
+        const userCooldown = participationResult?.customCooldownSeconds ?? -1; // Use -1 to distinguish from a 0s override
+        const effectiveCooldown = userCooldown >= 0 ? userCooldown : eventCooldown;
+
+        if (effectiveCooldown > 0) {
+          const lastMessage = await tx.query.messages
+            .where('userId', authData.sub)
+            .where('eventId', eventIdToUse)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .one();
+
+          if (lastMessage) {
+            const timeSinceLastMessage = Date.now() - (lastMessage.createdAt as number);
+            const requiredWaitTime = effectiveCooldown * 1000;
+
+            if (timeSinceLastMessage < requiredWaitTime) {
+              const remainingSeconds = Math.ceil((requiredWaitTime - timeSinceLastMessage) / 1000);
+              throw new Error(`Slow mode is active. Please wait ${remainingSeconds}s.`);
+            }
+          }
+        }
+      }
+
       const participation = await tx.query.eventParticipants
         .where('userId', userId)
         .where('eventId', eventIdToUse)
@@ -253,6 +284,35 @@ export function createServerMutators(
           )
         );
       console.log(`Server Mutator: User ${args.userId} UNBANNED from event ${args.eventId}.`);
+    },
+
+    setEventSlowMode: async (tx: AppServerTx, args: { eventId: string; seconds: number }) => {
+      if (authData.role !== 'admin') throw new Error('Unauthorized.');
+      if (typeof args.seconds !== 'number' || args.seconds < 0) throw new Error('Invalid duration.');
+
+      await tx.mutate.events.update({
+        id: args.eventId,
+        slowModeSeconds: args.seconds,
+      });
+      console.log(`Server: Event ${args.eventId} slow mode set to ${args.seconds}s.`);
+    },
+
+    setUserSlowMode: async (tx: AppServerTx, args: { eventId: string; userId: string; seconds: number | null }) => {
+      if (authData.role !== 'admin') throw new Error('Unauthorized.');
+      if (typeof args.seconds !== 'number' && args.seconds !== null) throw new Error('Invalid duration.');
+
+      await tx.dbTransaction.wrappedTransaction
+        .insert(eventParticipants)
+        .values({
+          userId: args.userId,
+          eventId: args.eventId,
+          customCooldownSeconds: args.seconds,
+        })
+        .onConflictDoUpdate({
+          target: [eventParticipants.userId, eventParticipants.eventId],
+          set: { customCooldownSeconds: args.seconds },
+        });
+      console.log(`Server: User ${args.userId} in event ${args.eventId} custom cooldown set to ${args.seconds}s.`);
     },
 
   } as const satisfies ServerCustomMutatorDefs<ServerTransaction<Schema, DrizzleTransactionExecutor>>;

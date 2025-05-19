@@ -110,6 +110,9 @@ export function createMutators(authData?: ZeroAuthData) {
       console.log(`Client: Sending 'unbanUser' request for user ${args.userId} in event ${args.eventId}.`);
     },
 
+    setEventSlowMode: async (tx: Transaction<Schema>, args: { eventId: string, seconds: number }) => { },
+    setUserSlowMode: async (tx: Transaction<Schema>, args: { eventId: string, userId: string, seconds: number | null }) => { },
+
   } as const satisfies CustomMutatorDefs<Schema>;
 }
 

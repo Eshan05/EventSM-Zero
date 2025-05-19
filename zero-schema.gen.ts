@@ -131,6 +131,12 @@ export const schema = {
                     "optional": true,
                     "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "events", "isActive">,
                     "serverName": "is_active"
+                },
+                "slowModeSeconds": {
+                    "type": "number",
+                    "optional": true,
+                    "customType": null as unknown as ZeroCustomType<typeof zeroSchema, "events", "slowModeSeconds">,
+                    "serverName": "slow_mode_seconds"
                 }
             },
             "primaryKey": ["id"]

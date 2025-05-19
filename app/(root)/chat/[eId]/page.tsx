@@ -15,6 +15,8 @@ import {
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LiaUsersSolid } from "react-icons/lia";
 import { BiUserVoice } from "react-icons/bi";
 import Emojis from '@/components/ui/emoji';
@@ -26,7 +28,7 @@ import { useZero } from '@/lib/zero/zero';
 import { ActiveParticipant, BannedParticipant, CategorizedParticipants, MutedParticipant } from '@/types/participants';
 import { useQuery } from '@rocicorp/zero/react';
 import { formatDistanceToNow } from 'date-fns';
-import { BanIcon, Bold, ClockIcon, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, Trash2Icon, Underline, UserIcon, XIcon } from 'lucide-react';
+import { BanIcon, Bold, ClockIcon, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, TimerIcon, Trash2Icon, Underline, UserIcon, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -87,6 +89,13 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   const [isBanDialogOpen, setIsBanDialogOpen] = useState(false);
   const [isBanned, setIsBanned] = useState(false);
   const [isParticipantsDialogOpen, setIsParticipantsDialogOpen] = useState(false);
+
+  // 👇 ADD STATE FOR SLOW MODE UI 👇
+  const [cooldownEndsAt, setCooldownEndsAt] = useState<number | null>(null);
+  const [cooldownTime, setCooldownTime] = useState(0);
+  const [isSlowModeUserDialogOpen, setIsSlowModeUserDialogOpen] = useState(false);
+  const [userForSlowMode, setUserForSlowMode] = useState<{ id: string, username: string } | null>(null);
+  const [userSlowModeSeconds, setUserSlowModeSeconds] = useState<string>('5');
 
   const isZeroClientAvailable = !!z;
   const isAdmin = (session?.user as CustomUser)?.role === 'admin';
@@ -175,6 +184,36 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     });
   }, [z, userToBan, eId]);
 
+  const handleSetEventSlowMode = (seconds: number) => {
+    toast.promise(z.mutate.setEventSlowMode({ eventId: eId, seconds }).server, {
+      loading: 'Setting slow mode...',
+      success: `Event slow mode set to ${seconds}s.`,
+      error: (err) => `Failed: ${err.message}`,
+    });
+  };
+
+  // Handlers for setting per-user slow mode
+  const openUserSlowModeDialog = (userId: string, username: string) => {
+    setUserForSlowMode({ id: userId, username });
+    setIsSlowModeUserDialogOpen(true);
+  }
+
+  const handleSetUserSlowMode = () => {
+    if (!userForSlowMode) return;
+    const seconds = parseInt(userSlowModeSeconds, 10);
+    if (isNaN(seconds) || seconds < 0) {
+      toast.error('Please enter a valid non-negative number.');
+      return;
+    }
+
+    toast.promise(z.mutate.setUserSlowMode({ eventId: eId, userId: userForSlowMode.id, seconds }).server, {
+      loading: `Setting cooldown for ${userForSlowMode.username}...`,
+      success: `Custom cooldown set to ${seconds}s.`,
+      error: (err) => `Failed: ${err.message}`,
+    });
+    setIsSlowModeUserDialogOpen(false);
+  };
+
   useEffect(() => {
     if (authStatus === 'authenticated' && eId) {
       fetch(`/api/events/${eId}`)
@@ -199,7 +238,6 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     }
   }, [authStatus, eId, addErrorMessage]);
 
-  // Correctly use useQuery:
   // It returns a readonly tuple: readonly [T[], QueryResultDetails]
   // We destructure it into const variables.
   const [rawMessages, messagesResultDetails] = useQuery(z?.query.messages.orderBy('createdAt', 'asc'));
@@ -208,10 +246,27 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     z?.query.eventParticipants.where('eventId', '=', eId)
   );
 
+  const [eventDetails] = useQuery(z?.query.events.where('id', '=', eId));
+  const eventSlowMode = eventDetails?.[0]?.slowModeSeconds ?? 0;
+
   useEffect(() => {
     console.log('ZERO DATA: messages query update:', { data: rawMessages, details: messagesResultDetails });
     console.log('ZERO DATA: users query update:', { data: rawUsers, details: usersResultDetails });
   }, [rawMessages, messagesResultDetails, rawUsers, usersResultDetails]);
+
+  useEffect(() => {
+    if (!cooldownEndsAt) return;
+    const interval = setInterval(() => {
+      const remaining = Math.ceil((cooldownEndsAt - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setCooldownEndsAt(null);
+        setCooldownTime(0);
+      } else {
+        setCooldownTime(remaining);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldownEndsAt]);
 
   const userStatusMap = useMemo(() => {
     const map = new Map<string, { isBanned: boolean; mutedUntil: number | null }>();
@@ -481,10 +536,27 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
       setReplyToId(null);
 
       await mutation.server
-        .then(() => console.log("CLIENT: Server confirmed addMessage."))
-        .catch(err => {
+        .then(() => {
+          console.log("CLIENT: Server confirmed addMessage.");
+          const userStatus = participantsStatus?.find(p => p.userId === session?.user?.id);
+          const userCooldown = userStatus?.customCooldownSeconds ?? -1;
+          const effectiveCooldown = userCooldown >= 0 ? userCooldown : eventSlowMode;
+          if (effectiveCooldown > 0) {
+            setCooldownEndsAt(Date.now() + effectiveCooldown * 1000);
+            setCooldownTime(effectiveCooldown);
+          }
+        })
+        .catch((err: Error) => {
           console.error("CLIENT: Server REJECTED addMessage:", err);
           addErrorMessage(`Server error sending message: ${err.message}`);
+
+          // If the server rejects because of slow mode, re-sync the client timer
+          const slowModeMatch = err.message.match(/Please wait (\d+)s/);
+          if (slowModeMatch) {
+            const remainingSeconds = parseInt(slowModeMatch[1], 10);
+            setCooldownEndsAt(Date.now() + remainingSeconds * 1000);
+            setCooldownTime(remainingSeconds);
+          }
         });
 
     } catch (err: unknown) {
@@ -575,6 +647,27 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
               : <AnimatedShinyText className='text-2xl font-bold tracking-tight'> <span>{'Syncing'}</span></AnimatedShinyText>}
           </div>
           <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <TimerIcon className={`h-5 w-5 ${eventSlowMode > 0 ? 'text-yellow-500' : ''}`} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56">
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Event Slow Mode</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[0, 5, 15, 30, 60, 300].map(sec => (
+                        <Button key={sec} variant={eventSlowMode === sec ? 'default' : 'outline'} size="sm" onClick={() => handleSetEventSlowMode(sec)}>
+                          {sec === 0 ? 'Off' : `${sec}s`}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
             <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'success-2' : 'secondary'} className='small-caps'>
               {isMessagesDataComplete && isUsersDataComplete ? 'Synced' :
                 (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete') ? 'Error' : 'Syncing...'}
@@ -716,6 +809,13 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                                 <span>Mute User</span>
                               </ContextMenuItem>
                               <ContextMenuItem
+                                className="text-blue-500 focus:text-blue-600 focus:bg-blue-500/10"
+                                onSelect={() => openUserSlowModeDialog(message.userId!, message.username)}
+                              >
+                                <TimerIcon />
+                                <span>Set Slow Mode</span>
+                              </ContextMenuItem>
+                              <ContextMenuItem
                                 className="text-destructive focus:text-destructive focus:bg-destructive/10"
                                 onSelect={() => handleBanClick(message.userId!, message.username)}
                               >
@@ -813,10 +913,10 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
                 {isParticipantListLoading ? <LinesLoader /> : (
                   <>
                     <TabsContent value="all" className="max-h-96 overflow-y-auto">
-                      <ParticipantList users={categorizedParticipants.all ?? []} onMute={onMute} onBan={onBan} />
+                      <ParticipantList users={categorizedParticipants.all ?? []} onMute={onMute} onBan={onBan} onSetSlowMode={openUserSlowModeDialog} />
                     </TabsContent>
                     <TabsContent value="active" className="max-h-96 overflow-y-auto">
-                      <ParticipantList users={categorizedParticipants.active ?? []} onMute={onMute} onBan={onBan} />
+                      <ParticipantList users={categorizedParticipants.active ?? []} onMute={onMute} onBan={onBan} onSetSlowMode={openUserSlowModeDialog} />
                     </TabsContent>
                     <TabsContent value="muted" className="max-h-96 overflow-y-auto">
                       <MutedList users={categorizedParticipants?.muted ?? []} onUnmute={onUnmute} onMute={onMute} />
@@ -866,13 +966,15 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
               <Emojis onEmojiSelectAction={handleEmojiSelect} />
               <Button
                 type="submit"
-                disabled={isSending || !newMessageText.trim() || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
+                disabled={isSending || cooldownTime > 0 || !newMessageText.trim() || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
                 size="md-icon"
                 variant={'outline'}
                 className="flex-shrink-0 grid place-items-center"
               >
                 {isSending && newMessageText.trim() ? (
                   <LoaderCircleIcon className="animate-spin h-4 w-4" />
+                ) : cooldownTime > 0 ? (
+                  <span className="text-sm font-mono">{cooldownTime}</span>
                 ) : (
                   <SendHorizontalIcon className="h-4 w-4" />
                 )}
@@ -948,6 +1050,34 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
               {newMessageText}
             </ReactMarkdown>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isSlowModeUserDialogOpen} onOpenChange={(isOpen) => {
+        setIsSlowModeUserDialogOpen(isOpen);
+        if (!isOpen) {
+          setUserSlowModeSeconds('5'); // Reset to default on close
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Custom Cooldown for {userForSlowMode?.username}</DialogTitle>
+            <DialogDescription>
+              Override the event-wide slow mode for this user. Enter 0 to remove their cooldown but still respect the event's slow mode.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              type="number"
+              placeholder="Seconds (e.g., 5, 30, 60)"
+              value={userSlowModeSeconds}
+              onChange={(e) => setUserSlowModeSeconds(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsSlowModeUserDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSetUserSlowMode}>Set Cooldown</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

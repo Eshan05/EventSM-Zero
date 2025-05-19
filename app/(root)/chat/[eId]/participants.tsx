@@ -23,10 +23,11 @@ interface ParticipantsDialogProps {
   onUnmute: (userId: string, username: string) => void;
   onBan: (userId: string, username: string) => void;
   onUnban: (userId: string, username: string) => void;
+  onSetSlowMode?: (userId: string, username: string) => void;
 }
 
 export function ParticipantsDialog({
-  isOpen, onOpenChange, eventId, onMute, onUnmute, onBan, onUnban
+  isOpen, onOpenChange, eventId, onMute, onUnmute, onBan, onUnban, onSetSlowMode
 }: ParticipantsDialogProps) {
   const [participants, setParticipants] = useState<CategorizedParticipants | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -82,10 +83,11 @@ export function ParticipantsDialog({
   );
 }
 
-export const ParticipantList = ({ users, onMute, onBan }: {
+export const ParticipantList = ({ users, onMute, onBan, onSetSlowMode }: {
   users: ActiveParticipant[],
   onMute?: (userId: string, username: string) => void,
   onBan?: (userId: string, username: string) => void,
+  onSetSlowMode?: (userId: string, username: string) => void,
 }) => {
   if (users.length === 0) return <p className="text-center text-sm text-muted-foreground py-4">No users in this list.</p>;
   return (
@@ -96,6 +98,9 @@ export const ParticipantList = ({ users, onMute, onBan }: {
             <Avatar className="size-8">
               {user.image ? <img src={user.image} alt={user.username} /> : <UserIcon />}
             </Avatar>
+            {user.isActive && (
+              <div className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-background" title="Active now" />
+            )}
             <span>{user.username}</span>
           </div>
 
@@ -105,6 +110,12 @@ export const ParticipantList = ({ users, onMute, onBan }: {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => onMute && onMute(user.id, user.username)}>Mute</DropdownMenuItem>
+              {onSetSlowMode && (
+                <DropdownMenuItem onClick={() => onSetSlowMode(user.id, user.username)}>
+                  <ClockIcon className="mr-2 h-4 w-4" />
+                  Set Slow Mode
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem className="text-destructive" onClick={() => onBan && onBan(user.id, user.username)}>Ban</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -78,6 +78,7 @@ export const events = pgTable("events", {
   description: text("description").default(""),
   name: varchar("name", { length: 255 }),
   isActive: boolean("is_active").default(true).notNull(),
+  slowModeSeconds: integer("slow_mode_seconds").default(0).notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),

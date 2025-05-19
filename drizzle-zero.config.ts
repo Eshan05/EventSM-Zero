@@ -21,6 +21,7 @@ export default drizzleZeroConfig(drizzleSchema, {
       codeName: true,
       description: true,
       isActive: true,
+      slowModeSeconds: true,
       createdAt: false,
     },
     eventParticipants: {
