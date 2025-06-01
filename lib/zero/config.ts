@@ -113,7 +113,7 @@ export function createMutators(authData?: ZeroAuthData) {
     setEventSlowMode: async (tx: Transaction<Schema>, args: { eventId: string, seconds: number }) => { },
     setUserSlowMode: async (tx: Transaction<Schema>, args: { eventId: string, userId: string, seconds: number | null }) => { },
 
-  } as const satisfies CustomMutatorDefs<Schema>;
+  } as const satisfies CustomMutatorDefs;
 }
 
 // --- Zero Permissions Definition ---
