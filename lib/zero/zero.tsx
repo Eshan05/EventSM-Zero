@@ -3,7 +3,6 @@
 import {
   useState,
   useEffect,
-  useMemo,
   type ReactNode
 } from 'react';
 import { Zero } from '@rocicorp/zero';
@@ -40,61 +39,78 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
 
   const [currentZeroClientContainer, setCurrentZeroClientContainer] = useState<ZeroClientStateContainer | null>(null);
 
-  const userIdFromSession = useMemo(() => {
-    return (session?.user as CustomUser)?.id;
-  }, [session?.user]);
-
-  const zeroAuthDataForMutators = useMemo((): ZeroAuthData | undefined => {
-    if (session?.user && userIdFromSession) {
-      const user = session.user as CustomUser;
-      return {
+  const userIdFromSession = (session?.user as CustomUser | undefined)?.id;
+  const zeroAuthDataForMutators: ZeroAuthData | undefined =
+    session?.user && userIdFromSession
+      ? {
         sub: userIdFromSession,
-        role: user.role || 'user',
-        username: user.username || 'Anonymous',
-      };
-    }
-    return undefined;
-  }, [session?.user, userIdFromSession]);
+        role: (session.user as CustomUser).role || 'user',
+        username: (session.user as CustomUser).username || 'Anonymous',
+      }
+      : undefined;
 
   useEffect(() => {
+    let cancelled = false;
+
     if (authStatus === 'authenticated' && session?.user?.id) {
-      setIsLoadingToken(true);
-      setError(null);
-      fetch('/api/zero-token')
-        .then(res => {
+      const run = async () => {
+        setIsLoadingToken(true);
+        setError(null);
+
+        try {
+          const res = await fetch('/api/zero-token');
           if (!res.ok) {
-            return res.json().catch(() => ({ message: `HTTP error ${res.status}` }))
-              .then(errBody => { throw new Error(errBody.message || `Failed to fetch zero token: ${res.status}`); });
+            const errBody = await res
+              .json()
+              .catch(() => ({ message: `HTTP error ${res.status}` }));
+            throw new Error(errBody.message || `Failed to fetch zero token: ${res.status}`);
           }
-          return res.json();
-        })
-        .then(data => {
+
+          const data = await res.json();
+          if (cancelled) return;
           if (data.zeroToken) {
             setFetchedZeroToken(data.zeroToken);
           } else {
-            throw new Error("Zero token not found in API response.");
+            throw new Error('Zero token not found in API response.');
           }
-        })
-        .catch(err => {
-          console.error("Error fetching zero token:", err);
-          setError(err);
+        } catch (err: unknown) {
+          if (cancelled) return;
+          console.error('Error fetching zero token:', err);
+          setError(err instanceof Error ? err : new Error(String(err)));
           setFetchedZeroToken(null);
-        })
-        .finally(() => {
-          setIsLoadingToken(false);
-        });
-    } else if (authStatus === 'unauthenticated') {
-      setFetchedZeroToken(null);
-      setIsLoadingToken(false);
-      setError(null);
-      if (currentZeroClientContainer) {
-        console.log("User unauthenticated, closing existing Zero client.");
-        currentZeroClientContainer.instance.close();
-        setCurrentZeroClientContainer(null);
-      }
-    } else if (authStatus === 'loading') {
-      setIsLoadingToken(true);
+        } finally {
+          if (!cancelled) setIsLoadingToken(false);
+        }
+      };
+
+      queueMicrotask(() => {
+        void run();
+      });
     }
+
+    if (authStatus === 'unauthenticated') {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setFetchedZeroToken(null);
+        setIsLoadingToken(false);
+        setError(null);
+        if (currentZeroClientContainer) {
+          console.log('User unauthenticated, closing existing Zero client.');
+          currentZeroClientContainer.instance.close();
+          setCurrentZeroClientContainer(null);
+        }
+      });
+    }
+
+    if (authStatus === 'loading') {
+      queueMicrotask(() => {
+        if (!cancelled) setIsLoadingToken(true);
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [authStatus, session?.user?.id, currentZeroClientContainer]);
 
   useEffect(() => {
@@ -129,12 +145,14 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
           },
         });
 
-        setCurrentZeroClientContainer({
-          instance: newZeroClientInstance,
-          initializedWithToken: fetchedZeroToken,
-          initializedWithUserId: userIdFromSession,
+        queueMicrotask(() => {
+          setCurrentZeroClientContainer({
+            instance: newZeroClientInstance,
+            initializedWithToken: fetchedZeroToken,
+            initializedWithUserId: userIdFromSession,
+          });
+          setError(null);
         });
-        setError(null);
         console.log("Zero client initialized successfully.");
       } catch (initError: unknown) {
         console.error("Failed to initialize Zero client:", initError);
@@ -144,14 +162,18 @@ export function ZeroProvider({ children }: { children: ReactNode }) {
         } else if (typeof initError === 'string') {
           errorMessage = `Failed to initialize chat service: ${initError}`;
         }
-        setError(new Error(errorMessage));
-        setCurrentZeroClientContainer(null);
+        queueMicrotask(() => {
+          setError(new Error(errorMessage));
+          setCurrentZeroClientContainer(null);
+        });
       }
 
     } else if (!fetchedZeroToken && !isLoadingToken && currentZeroClientContainer) {
       console.log("ZeroProvider: Token lost or invalid. Closing existing Zero client.");
       currentZeroClientContainer.instance.close();
-      setCurrentZeroClientContainer(null);
+      queueMicrotask(() => {
+        setCurrentZeroClientContainer(null);
+      });
     }
   }, [fetchedZeroToken, userIdFromSession, zeroAuthDataForMutators, isLoadingToken]);
 
