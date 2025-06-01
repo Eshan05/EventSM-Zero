@@ -3,15 +3,88 @@ import type {
   ServerTransaction,
 } from '@rocicorp/zero/pg';
 
-import { events as eventsTable, eventParticipants as eventParticipantsTable, eventParticipants } from '@/db/schema';
+import {
+  blockedWords as blockedWordsTable,
+  events as eventsTable,
+  eventParticipants as eventParticipantsTable,
+  eventParticipants,
+  messages as messagesTable,
+  users as usersTable,
+} from '@/db/schema';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { type Schema, type ZeroAuthData, createMutators as createClientMutators } from './config';
 import type { DrizzleTransactionExecutor } from './drizzle-adapter-pg';
 
 const redis = Redis.fromEnv();
-const blockedWordsCache: string[] = [];
+
+const chatUserGlobalRatelimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, '2s'),
+  prefix: 'chat_user_global_msg_rl',
+});
+
+const chatUserEventRatelimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, '2s'),
+  prefix: 'chat_user_msg_rl',
+});
+
+const chatEventGlobalRatelimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(60, '2s'),
+  prefix: 'chat_global_msg_rl',
+});
+
+const BLOCKED_WORDS_CACHE_KEY = 'blocked_words:v1';
+
+function normalizeForBlockedPhraseMatch(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function messageContainsBlockedWord(message: string, blockedWords: readonly string[]): boolean {
+  if (blockedWords.length === 0) return false;
+
+  const normalized = normalizeForBlockedPhraseMatch(message);
+  if (!normalized) return false;
+
+  const tokens = new Set(normalized.split(' '));
+  for (const raw of blockedWords) {
+    const bw = normalizeForBlockedPhraseMatch(raw);
+    if (!bw) continue;
+    if (bw.includes(' ')) {
+      if (normalized.includes(bw)) return true;
+    } else {
+      if (tokens.has(bw)) return true;
+    }
+  }
+  return false;
+}
+
+async function getBlockedWordsCached(drizzleTx: DrizzleTransactionExecutor): Promise<string[]> {
+  const cached = await redis.get<string[] | string | null>(BLOCKED_WORDS_CACHE_KEY);
+  if (Array.isArray(cached)) return cached;
+  if (typeof cached === 'string') {
+    try {
+      const parsed = JSON.parse(cached) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter((w): w is string => typeof w === 'string');
+    } catch {
+      // ignore
+    }
+  }
+
+  const rows = await drizzleTx.query.blockedWords.findMany({
+    columns: { word: true },
+  });
+  const words = rows.map(r => r.word).filter((w): w is string => typeof w === 'string');
+  await redis.set(BLOCKED_WORDS_CACHE_KEY, words, { ex: 60 });
+  return words;
+}
 
 /**
  * Creates the map of SERVER-SIDE mutator functions.
@@ -22,7 +95,7 @@ export function createServerMutators(
   authData: ZeroAuthData, // Auth data from decoded JWT
   asyncTasks: Array<() => Promise<void>> = [] // For out-of-transaction work
 ) {
-  const clientMutators = createClientMutators(authData);
+  void createClientMutators(authData);
   type AppServerTx = ServerTransaction<Schema, DrizzleTransactionExecutor>;
 
   return {
@@ -32,36 +105,48 @@ export function createServerMutators(
       const userId = authData.sub;
       if (!userId) throw new Error('Authentication required.');
 
+      const drizzleTx = tx.dbTransaction.wrappedTransaction;
+
       let eventIdToUse = args.eventId;
       if (!eventIdToUse) {
-        // Use ServerTransaction's ZQL query mapped to DB
-        const eventResult = await tx.query.events.where('isActive', true).one();
-        if (!eventIdToUse || eventIdToUse === null) throw new Error('No active chat event found.');
-        eventIdToUse = eventResult!.id!;
+        const eventResult = await drizzleTx.query.events.findFirst({
+          where: eq(eventsTable.isActive, true),
+          columns: { id: true },
+        });
+        if (!eventResult?.id) throw new Error('No active chat event found.');
+        eventIdToUse = eventResult.id;
       }
       if (!eventIdToUse) throw new Error('No active chat event or eventId not provided.');
 
       if (authData.role !== 'admin') {
-        const event = await tx.query.events.where('id', eventIdToUse).one();
-        const participationResult = await tx.query.eventParticipants
-          .where('userId', authData.sub)
-          .where('eventId', eventIdToUse)
-          .one();
+        const event = await drizzleTx.query.events.findFirst({
+          where: eq(eventsTable.id, eventIdToUse),
+          columns: { slowModeSeconds: true },
+        });
+        const participationResult = await drizzleTx.query.eventParticipants.findFirst({
+          where: and(
+            eq(eventParticipantsTable.userId, authData.sub),
+            eq(eventParticipantsTable.eventId, eventIdToUse)
+          ),
+          columns: { customCooldownSeconds: true },
+        });
 
         const eventCooldown = event?.slowModeSeconds ?? 0;
         const userCooldown = participationResult?.customCooldownSeconds ?? -1; // Use -1 to distinguish from a 0s override
         const effectiveCooldown = userCooldown >= 0 ? userCooldown : eventCooldown;
 
         if (effectiveCooldown > 0) {
-          const lastMessage = await tx.query.messages
-            .where('userId', authData.sub)
-            .where('eventId', eventIdToUse)
-            .orderBy('createdAt', 'desc')
-            .limit(1)
-            .one();
+          const lastMessage = await drizzleTx.query.messages.findFirst({
+            where: and(
+              eq(messagesTable.userId, authData.sub),
+              eq(messagesTable.eventId, eventIdToUse)
+            ),
+            columns: { createdAt: true },
+            orderBy: [desc(messagesTable.createdAt)],
+          });
 
           if (lastMessage) {
-            const timeSinceLastMessage = Date.now() - (lastMessage.createdAt as number);
+            const timeSinceLastMessage = Date.now() - lastMessage.createdAt.getTime();
             const requiredWaitTime = effectiveCooldown * 1000;
 
             if (timeSinceLastMessage < requiredWaitTime) {
@@ -72,17 +157,23 @@ export function createServerMutators(
         }
       }
 
-      const participation = await tx.query.eventParticipants
-        .where('userId', userId)
-        .where('eventId', eventIdToUse)
-        .one();
+      const participation = await drizzleTx.query.eventParticipants.findFirst({
+        where: and(
+          eq(eventParticipantsTable.userId, userId),
+          eq(eventParticipantsTable.eventId, eventIdToUse)
+        ),
+        columns: {
+          isBanned: true,
+          mutedUntil: true,
+        },
+      });
 
       if (participation) {
         if (participation.isBanned) {
           throw new Error('You are banned from this event.');
         }
-        if (participation.mutedUntil && participation.mutedUntil > Date.now()) {
-          const remainingSeconds = Math.ceil((participation.mutedUntil - Date.now()) / 1000);
+        if (participation.mutedUntil && participation.mutedUntil.getTime() > Date.now()) {
+          const remainingSeconds = Math.ceil((participation.mutedUntil.getTime() - Date.now()) / 1000);
           throw new Error(`You are muted in this event for another ${remainingSeconds} seconds.`);
         }
       }
@@ -90,18 +181,32 @@ export function createServerMutators(
       if (!args.text?.trim()) throw new Error('Message text cannot be empty.');
       const cleanedText = args.text.trim();
 
-      // Rate Limiting (Server-Side)
-      const userRatelimit = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, "2s"), prefix: `chat_user_msg_rl_${userId}` });
-      const { success: userSuccess } = await userRatelimit.limit(`add_msg_${eventIdToUse}`);
-      if (!userSuccess) throw new Error('You are sending messages too quickly.');
-      // TODO: Make this set-able by the admin in the chat interface
-      // const globalRatelimit = new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(1, "3s"), prefix: `chat_global_msg_rl` });
-      // const { success: globalSuccess } = await globalRatelimit.limit(`add_message_${eventIdToUse}`);
-      // if (!globalSuccess) throw new Error('Chat is in slow mode. Please wait.');
+      if (args.replyToId) {
+        const parentMessage = await drizzleTx.query.messages.findFirst({
+          where: eq(messagesTable.id, args.replyToId),
+          columns: { eventId: true, isDeleted: true },
+        });
+        if (!parentMessage) throw new Error('Cannot reply: parent message not found.');
+        if (parentMessage.eventId !== eventIdToUse) throw new Error('Cannot reply across events.');
+        if (parentMessage.isDeleted) throw new Error('Cannot reply to a deleted message.');
+      }
 
-      // if (blockedWordsCache.some(bw => cleanedText.toLowerCase().includes(bw))) {
-      //   throw new Error('Your message contains blocked words.');
-      // }
+      // Rate Limiting (Server-Side)
+      const { success: appUserSuccess } = await chatUserGlobalRatelimit.limit(`user:${userId}`);
+      if (!appUserSuccess) throw new Error('You are sending messages too quickly.');
+
+      const { success: userSuccess } = await chatUserEventRatelimit.limit(`${userId}:${eventIdToUse}`);
+      if (!userSuccess) throw new Error('You are sending messages too quickly.');
+
+      const { success: globalSuccess } = await chatEventGlobalRatelimit.limit(`event:${eventIdToUse}`);
+      if (!globalSuccess) throw new Error('Chat is busy. Please try again in a moment.');
+
+      if (authData.role !== 'admin') {
+        const blockedWords = await getBlockedWordsCached(drizzleTx);
+        if (messageContainsBlockedWord(cleanedText, blockedWords)) {
+          throw new Error('Your message contains blocked words.');
+        }
+      }
 
       const now = new Date();
       await tx.dbTransaction.wrappedTransaction
@@ -141,10 +246,15 @@ export function createServerMutators(
       if (authData.role !== 'admin') throw new Error('Unauthorized.');
       if (!args.messageId) throw new Error('Message ID required.');
 
+      const drizzleTx = tx.dbTransaction.wrappedTransaction;
+
       const deleteTimestamp = Date.now();
 
       // Optional: Check if message exists using ZQL read first
-      const existing = await tx.query.messages.where('id', args.messageId).one();
+      const existing = await drizzleTx.query.messages.findFirst({
+        where: eq(messagesTable.id, args.messageId),
+        columns: { isDeleted: true },
+      });
       if (!existing) throw new Error("Message not found to delete.");
       if (existing.isDeleted) throw new Error("Message already deleted.");
 
@@ -195,7 +305,12 @@ export function createServerMutators(
       if (authData.role !== 'admin') throw new Error('Unauthorized.');
       // ... (argument validation)
 
-      const targetUser = await tx.query.users.where('id', args.userId).one();
+      const drizzleTx = tx.dbTransaction.wrappedTransaction;
+
+      const targetUser = await drizzleTx.query.users.findFirst({
+        where: eq(usersTable.id, args.userId),
+        columns: { role: true },
+      });
       if (!targetUser || targetUser.role === 'admin') throw new Error('Cannot mute this user.');
 
       const muteUntilDate = new Date(Date.now() + args.durationInSeconds * 1000);
@@ -243,7 +358,12 @@ export function createServerMutators(
       if (authData.role !== 'admin') throw new Error('Unauthorized.');
       if (!args.userId || !args.eventId) throw new Error('User ID and Event ID are required.');
 
-      const targetUser = await tx.query.users.where('id', args.userId).one();
+      const drizzleTx = tx.dbTransaction.wrappedTransaction;
+
+      const targetUser = await drizzleTx.query.users.findFirst({
+        where: eq(usersTable.id, args.userId),
+        columns: { role: true },
+      });
       if (!targetUser || targetUser.role === 'admin') throw new Error('Cannot ban this user.');
 
       await tx.dbTransaction.wrappedTransaction
