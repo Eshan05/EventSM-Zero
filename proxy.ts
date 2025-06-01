@@ -6,6 +6,14 @@ import { CustomSession } from '@/lib/auth';
 
 const LOG_PREFIX = '[Middleware]';
 
+const MIDDLEWARE_DEBUG_LOGS =
+  process.env.MIDDLEWARE_DEBUG_LOGS === '1' ||
+  process.env.MIDDLEWARE_DEBUG_LOGS === 'true';
+
+function debugLog(message: string) {
+  if (MIDDLEWARE_DEBUG_LOGS) console.log(message);
+}
+
 const PUBLIC_PATHS: string[] = ['/'];
 const AUTH_PAGE_PATH = '/u';
 const USER_DASHBOARD_PATH = '/';
@@ -33,12 +41,12 @@ export async function proxy(req: NextRequest) {
 
   // 1. Allow Auth.js API routes to pass through unconditionally
   if (pathname.startsWith(API_AUTH_PREFIX)) {
-    console.log(`${LOG_CTX} Allowing Auth.js API route.`);
+    debugLog(`${LOG_CTX} Allowing Auth.js API route.`);
     return NextResponse.next();
   }
 
   if (pathname.startsWith('/api/zero-push')) {
-    console.log(`${LOG_CTX} Allowing Zero Token API route.`);
+    debugLog(`${LOG_CTX} Allowing Zero Token API route.`);
     return NextResponse.next();
   }
 
@@ -57,7 +65,7 @@ export async function proxy(req: NextRequest) {
   if (isAuthenticated && user) {
     // If user is authenticated and tries to access the sign-in/sign-up page, redirect them
     if (pathname === AUTH_PAGE_PATH) {
-      console.log(`${LOG_CTX} Authenticated user on auth page. Redirecting to dashboard.`);
+      debugLog(`${LOG_CTX} Authenticated user on auth page. Redirecting to dashboard.`);
       return NextResponse.redirect(new URL(USER_DASHBOARD_PATH, req.url));
     }
 
@@ -73,7 +81,7 @@ export async function proxy(req: NextRequest) {
 
   if (!isAuthenticated) {
     if (pathname === AUTH_PAGE_PATH) {
-      console.log(`${LOG_CTX} Unauthenticated user accessing auth page. Allowing.`);
+      // Auth page is intentionally public; avoid noisy per-request logging here.
       return NextResponse.next();
     }
 
