@@ -26,7 +26,7 @@ const ADMIN_PATHS_STARTS_WITH: string[] = [
   '/api/admin',
 ];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const requestIp = getClientIP(req);
   const LOG_CTX = `${LOG_PREFIX}[${pathname}][IP:${requestIp}]`;
