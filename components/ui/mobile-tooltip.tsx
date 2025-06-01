@@ -16,10 +16,10 @@ const TouchContext = createContext<boolean | undefined>(undefined)
 const useTouch = () => useContext(TouchContext)
 
 export const TooltipProvider = ({ children, ...props }: TooltipPrimitive.TooltipProviderProps) => {
-  const [isTouch, setTouch] = useState<boolean | undefined>(undefined)
-  useEffect(() => {
-    setTouch(window.matchMedia('(pointer: coarse)').matches)
-  }, [])
+  const [isTouch] = useState<boolean | undefined>(() => {
+    if (typeof window === 'undefined') return undefined
+    return window.matchMedia('(pointer: coarse)').matches
+  })
 
   return (
     <TouchContext.Provider value={isTouch}>
