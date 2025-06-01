@@ -28,13 +28,17 @@ export function CookieCheckDialog({ trigger }: { trigger: React.ReactNode }) {
       setCookie(testCookieName, 'testValue')
       const cookieValue = getCookies()
       if (cookieValue && !cookieValue[testCookieName as keyof typeof cookieValue]) {
-        setCookiesEnabled(false)
-        setOpen(true)
+        queueMicrotask(() => {
+          setCookiesEnabled(false)
+          setOpen(true)
+        })
       }
     } catch (error) {
       console.log('Cookies not enabled', error)
-      setCookiesEnabled(false)
-      setOpen(true)
+      queueMicrotask(() => {
+        setCookiesEnabled(false)
+        setOpen(true)
+      })
     }
   }, [])
 
