@@ -94,7 +94,7 @@ function EmojiPickerContent({
 }: React.ComponentProps<typeof EmojiPickerPrimitive.Viewport>) {
   return (
     <EmojiPickerPrimitive.Viewport
-      className={cn("outline-hidden relative flex-1", className)}
+      className={cn("outline-hidden relative flex-1 no-scrollbar", className)}
       data-slot="emoji-picker-viewport"
       {...props}
     >
@@ -111,7 +111,7 @@ function EmojiPickerContent({
         No emoji found.
       </EmojiPickerPrimitive.Empty>
       <EmojiPickerPrimitive.List
-        className="select-none pb-1"
+        className="select-none pb-1 no-scrollbar"
         components={{
           Row: EmojiPickerRow,
           Emoji: EmojiPickerEmoji,
