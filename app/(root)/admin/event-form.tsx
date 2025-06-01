@@ -3,6 +3,7 @@
 import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import type { ControllerRenderProps, UseFormReturn } from "react-hook-form";
 import * as z from "zod";
 import { format } from "date-fns";
 import { CalendarIcon, MapPinIcon, TagIcon, ClockIcon } from "lucide-react";
@@ -87,6 +88,78 @@ const eventFormSchema = z.object({
 );
 
 type EventFormValues = z.infer<typeof eventFormSchema>;
+
+function ReportingTimeField({
+  field,
+  form,
+}: {
+  field: ControllerRenderProps<EventFormValues, "reportingTime">;
+  form: UseFormReturn<EventFormValues>;
+}) {
+  const [hour, setHour] = React.useState(field.value ? field.value.getHours() : 9);
+  const [minute, setMinute] = React.useState(field.value ? field.value.getMinutes() : 0);
+
+  React.useEffect(() => {
+    if (!field.value) {
+      setHour(9);
+      setMinute(0);
+      return;
+    }
+
+    setHour(field.value.getHours());
+    setMinute(field.value.getMinutes());
+  }, [field.value]);
+
+  const updateReportingTime = React.useCallback(
+    (newHour: number, newMinute: number) => {
+      const startTime = form.getValues("startTime");
+      if (!startTime) return;
+
+      const newDate = new Date(startTime);
+      newDate.setHours(newHour, newMinute, 0, 0);
+      field.onChange(newDate);
+    },
+    [field, form]
+  );
+
+  return (
+    <FormItem>
+      <FormLabel>Reporting Time (Optional)</FormLabel>
+      <FormDescription>Arrival/check-in time. Uses the same date as start time.</FormDescription>
+      <div className="flex items-center gap-2 max-w-xs">
+        <Input
+          type="number"
+          value={hour}
+          onChange={(e) => {
+            const newHour = Math.max(0, Math.min(23, parseInt(e.target.value) || 0));
+            setHour(newHour);
+            updateReportingTime(newHour, minute);
+          }}
+          placeholder="HH"
+          className="w-16 text-center"
+          min={0}
+          max={23}
+        />
+        <span className="text-muted-foreground">:</span>
+        <Input
+          type="number"
+          value={minute}
+          onChange={(e) => {
+            const newMinute = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+            setMinute(newMinute);
+            updateReportingTime(hour, newMinute);
+          }}
+          placeholder="MM"
+          className="w-16 text-center"
+          min={0}
+          max={59}
+        />
+        <ClockIcon className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <FormMessage />
+    </FormItem>
+  );
+}
 
 export function EventForm({
   defaultValues,
@@ -315,61 +388,7 @@ export function EventForm({
                 <FormField
                   control={form.control}
                   name="reportingTime"
-                  render={({ field }) => {
-                    const [hour, setHour] = React.useState(
-                      field.value ? field.value.getHours() : 9
-                    );
-                    const [minute, setMinute] = React.useState(
-                      field.value ? field.value.getMinutes() : 0
-                    );
-
-                    const updateReportingTime = React.useCallback((newHour: number, newMinute: number) => {
-                      const startTime = form.getValues('startTime');
-                      if (startTime) {
-                        const newDate = new Date(startTime);
-                        newDate.setHours(newHour, newMinute, 0, 0);
-                        field.onChange(newDate);
-                      }
-                    }, [field, form]);
-
-                    return (
-                      <FormItem>
-                        <FormLabel>Reporting Time (Optional)</FormLabel>
-                        <FormDescription>Arrival/check-in time. Uses the same date as start time.</FormDescription>
-                        <div className="flex items-center gap-2 max-w-xs">
-                          <Input
-                            type="number"
-                            value={hour}
-                            onChange={(e) => {
-                              const newHour = Math.max(0, Math.min(23, parseInt(e.target.value) || 0));
-                              setHour(newHour);
-                              updateReportingTime(newHour, minute);
-                            }}
-                            placeholder="HH"
-                            className="w-16 text-center"
-                            min={0}
-                            max={23}
-                          />
-                          <span className="text-muted-foreground">:</span>
-                          <Input
-                            type="number"
-                            value={minute}
-                            onChange={(e) => {
-                              const newMinute = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
-                              setMinute(newMinute);
-                              updateReportingTime(hour, newMinute);
-                            }}
-                            placeholder="MM"
-                            className="w-16 text-center"
-                            min={0}
-                            max={59}
-                          />
-                          <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
+                  render={({ field }) => <ReportingTimeField field={field} form={form} />}
                 />
               </div>
 
