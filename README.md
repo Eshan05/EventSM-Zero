@@ -26,9 +26,9 @@ This project is an attempt at a real-time chat application designed for events, 
 [![React JS](https://skillicons.dev/icons?i=react "React JS")](https://react.dev/ "React JS") [![Next JS](https://skillicons.dev/icons?i=next "Next JS")](https://nextjs.org/ "Next JS") ![Javascript](https://skillicons.dev/icons?i=ts "Typescript") [![Tailwind CSS](https://skillicons.dev/icons?i=tailwind "Tailwind CSS")](https://tailwindcss.com/ "Tailwind CSS") [![Vercel](https://skillicons.dev/icons?i=vercel "Vercel")](https://vercel.app/ "Vercel")
 
 - **Language**: Typescript
-- **Backend**: [Next.js 15](https://nextjs.org/) + [NeonDB](https://neon.com/) with Drizzle. [Upstash](https://upstash.com/)
-- **Frontend**: [Next.js 15](https://nextjs.org/) + UI Components via [`shadcn/ui`](https://ui.shadcn.com/) + Tailwind
-- **Others**: [Zero (Rocicorp)](https://zero.rocicorp.dev/), `drizzle-zero`, Auth.js, `pg`, `zod`, `react-hook-form`, `remark`, and more
+- **Backend**: [Next.js 16](https://nextjs.org/) + [NeonDB](https://neon.com/) with Drizzle. [Upstash](https://upstash.com/)
+- **Frontend**: [Next.js 16](https://nextjs.org/) + UI Components via [`shadcn/ui`](https://ui.shadcn.com/) + Tailwind
+- **Others**: [Zero (Rocicorp)](https://zero.rocicorp.dev/), `drizzle-zero`, Auth.js, `pg`, `zod`, `react-hook-form`, `remark`, `frimousse`, `lexical` and more
 
 ## 🚀 Features
 
@@ -38,9 +38,10 @@ This project is an attempt at a real-time chat application designed for events, 
 *   🔐 **Role-Based Access Control:** Differentiated experience for regular users and administrators.
 *   🗓️ **Event Management:** Admins can create, activate, and manage chat events (WIP).
 *   ⏳ **Slow Mode:** Admins can enable/configure slow mode for the chat, limiting how often users can send messages (WIP).
-*   🚫 **Blocked Words Filter:** Implement a system to filter or flag messages containing predefined blocked words (Partial)
-*   ⏲️ **User Timeout/Mute:** Admins can temporarily mute or timeout users
-*   📈 **Rate Limiting:** Global and user based, sliding window and token bucket based rate limting for messages via upstash
+*   🧵 **Threaded Replies:** Reddit-style replies with compact previews in the main feed and a full thread dialog for deep/nested replies.
+*   🚫 **Blocked Words Filter:** Admin-managed blocked words list (in-chat UI) with server-side enforcement.
+*   ⏲️ **User Timeout/Mute:** Admins can temporarily mute or timeout users.
+*   📈 **Rate Limiting:** Per-user and global message rate limiting via Upstash (server-side enforced).
 
 ## 🤝 Usage
 
@@ -88,7 +89,8 @@ pnpm dev
 *   [ ] Full implementation of Slow Mode controls per user and global.
 *   [X] User timeout/mute functionality for admins.
 *   [ ] Comprehensive blocked words filter.
-*   [ ] Better markdown implementation and reply system
+*   [X] Better markdown implementation and reply system (Threaded replies)
+*   [X] Blocked words admin UI + enforcement
 *   [X] User presence indicators.
 *   [ ] Sound notifications for new messages.
 *   [ ] More detailed admin analytics.
