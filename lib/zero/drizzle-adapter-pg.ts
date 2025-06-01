@@ -92,7 +92,8 @@ export class ZeroDrizzlePgTransaction implements DBTransaction<DrizzleNodePgTran
     // Drizzle's transaction executor (NodePgDatabase) should have a `session` property
     // which then has a `client` (the PoolClient for this transaction).
     // WARNING: Accessing internal Drizzle properties like .session?.client is fragile and may break in future Drizzle versions.
-    const currentTxClient = (this.wrappedTransaction as any).session?.client as PoolClient | undefined;
+    const maybeTx = this.wrappedTransaction as unknown as { session?: { client?: PoolClient } };
+    const currentTxClient = maybeTx.session?.client;
 
     if (!currentTxClient) {
       throw new Error(
