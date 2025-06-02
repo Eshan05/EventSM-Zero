@@ -1,0 +1,25 @@
+"use client"
+
+import { TableIcon } from "lucide-react"
+
+import { useToolbarContext } from "@/components/editor/context/toolbar-context"
+import { InsertTableDialog } from "@/components/editor/plugins/table-plugin"
+import { Button } from "@/components/ui/button"
+
+export function TableToolbarPlugin() {
+  const { activeEditor, showModal } = useToolbarContext()
+
+  return (
+    <Button
+      onClick={() =>
+        showModal("Insert Table", (onClose) => (
+          <InsertTableDialog activeEditor={activeEditor} onClose={onClose} />
+        ))
+      }
+      size={"md-icon"}
+      variant={"outline"}
+    >
+      <TableIcon className="size-4" />
+    </Button>
+  )
+}
