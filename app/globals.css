@@ -7,6 +7,8 @@
   --font-sans: 'Geist', 'Geist Sans', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --breakpoint-xs: 30rem;
+  --container-8xl: 1440px;
+  --text-tiny: 0.625rem !important;
   --color-informative: hsl(var(--informative));
   --color-informative-foreground: hsl(var(--informative-foreground));
 }
@@ -136,7 +138,7 @@
 
 @layer utilities {
   .shadow-heading {
-    @apply bg-gradient-to-br dark:from-white from-black from-30% dark:to-white/40 to-black/40 bg-clip-text leading-none tracking-tighter text-transparent text-balance;
+    @apply bg-linear-to-br dark:from-white from-black from-30% dark:to-white/40 to-black/40 bg-clip-text leading-none tracking-tighter text-transparent text-balance;
   }
   .flex-center-2 {
     @apply flex items-center gap-2;

@@ -46,21 +46,21 @@ export default function EventsPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-2xl py-12">
-      <Card>
-        <CardHeader>
-          <CardTitle>Join a Chat Event</CardTitle>
+    <div className="container mx-auto max-w-2xl py-4 flex items-center justify-center min-h-[50vh]">
+      <Card className="w-full">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl">Join a Chat Event</CardTitle>
           <CardDescription>Select an active event to start chatting.</CardDescription>
         </CardHeader>
         <CardContent>
           {events.length > 0 ? (
-            <ul className="space-y-4">
+            <ul className="space-y-2">
               {events.map((event) => (
                 <li key={event.id}>
                   <Link href={`/chat/${event.id}`} passHref>
-                    <Button variant="outline" className="w-full justify-between h-14 text-lg">
-                      <span>{event.name || `Event ${event.id.substring(0, 8)}`}</span>
-                      <ArrowRightIcon className="h-5 w-5" />
+                    <Button variant="outline" className="w-full justify-between h-10 text-base px-4">
+                      <span className="font-semibold">{event.name || `Event ${event.id.substring(0, 8)}`}</span>
+                      <ArrowRightIcon className="size-4 opacity-50" />
                     </Button>
                   </Link>
                 </li>

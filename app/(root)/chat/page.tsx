@@ -8,16 +8,15 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Emojis from '@/components/ui/emoji';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { ChatComposerEditor, type ChatComposerHandle } from '@/components/chat/chat-composer-editor';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
 import { useQuery } from '@rocicorp/zero/react';
-import { Bold, Code, Italic, List, LoaderCircleIcon, ReplyIcon, SendHorizontalIcon, SendIcon, Trash2Icon, Underline, XIcon } from 'lucide-react';
+import { LoaderCircleIcon, ReplyIcon, SendHorizontalIcon, SendIcon, Trash2Icon, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import type { ReactElement } from 'react';
+import { MarkdownRenderer } from '@/components/markdown/markdown-renderer';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,6 +26,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { toast } from 'sonner';
+import { BlockedWordsAdminButton } from '@/components/chat/blocked-words-admin';
 
 interface ChatEvent {
   id: string;
@@ -49,7 +49,7 @@ interface RawZeroMessage {
 interface RawZeroUser {
   id: string;
   username: string;
-  role: string | null;
+  role: 'user' | 'admin' | null;
   image: string | null;
 }
 
@@ -62,13 +62,14 @@ interface MessageForUI extends RawZeroMessage {
 export default function ChatPage() {
   const { data: session, status: authStatus } = useSession();
   const z = useZero();
+  const isAdmin = (session?.user as CustomUser | undefined)?.role === 'admin';
   const [currentEvent, setCurrentEvent] = useState<ChatEvent | null>(null);
-  const [newMessageText, setNewMessageText] = useState('');
+  const [composerMarkdown, setComposerMarkdown] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
   const [isUserListDialogOpen, setIsUserListDialogOpen] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<ChatComposerHandle | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
   const [contextMenuMessageId, setContextMenuMessageId] = useState<string | null>(null);
@@ -101,10 +102,9 @@ export default function ChatPage() {
     }
   }, [authStatus, addErrorMessage]);
 
-  // Correctly use useQuery:
-  // It returns a readonly tuple: readonly [T[], QueryResultDetails]
-  // We destructure it into const variables.
-  const [rawMessages, messagesResultDetails] = useQuery(z?.query.messages.orderBy('createdAt', 'asc'));
+  const [rawMessages, messagesResultDetails] = useQuery(
+    z?.query.messages.where('eventId', '=', currentEvent?.id ?? '__none__').orderBy('createdAt', 'asc')
+  );
   const [rawUsers, usersResultDetails] = useQuery(z?.query.users.orderBy('username', 'asc'));
 
   useEffect(() => {
@@ -144,27 +144,25 @@ export default function ChatPage() {
     return usersInEvent.map(user => ({ ...user, id: user.id as string }));
   }, [currentEvent?.id, rawMessages, rawUsers]);
 
-  const combinedMessages = useMemo((): readonly MessageForUI[] => { // Return readonly array
-    if (!currentEvent?.id || !rawMessages || !rawUsers) {
-      return [];
-    }
+  const combinedMessages = useMemo((): readonly MessageForUI[] => {
+    if (!currentEvent?.id || !rawMessages || !rawUsers) return [];
 
-    const messagesForCurrentEvent = rawMessages
-      .filter((msg) => msg.eventId === currentEvent.id && !msg.isDeleted && msg.userId !== null);
-    // .sort((a, b) => a.createdAt - b.createdAt); // Already sorted by query
+    const messagesForCurrentEvent = rawMessages.filter(
+      (msg): msg is typeof msg & { id: string; userId: string } =>
+        msg.eventId === currentEvent.id && !msg.isDeleted && typeof msg.id === 'string' && typeof msg.userId === 'string'
+    );
 
     const usersMap = new Map<string, RawZeroUser>(
       rawUsers
-        .filter((user) => typeof user.id === 'string' && user.id !== null)
+        .filter((user): user is RawZeroUser & { id: string } => typeof user.id === 'string')
         .map(user => [user.id, user] as [string, RawZeroUser])
     );
 
     return messagesForCurrentEvent.map((msg) => {
-      const user = usersMap.get(msg.userId as string);
-      const messageForUI: MessageForUI = {
-        // @ts-expect-error FML
+      const user = usersMap.get(msg.userId);
+      return {
         id: msg.id,
-        userId: msg.userId === null ? 'unknown' : msg.userId,
+        userId: msg.userId,
         eventId: msg.eventId,
         text: msg.text,
         replyToMessageId: msg.replyToMessageId,
@@ -174,10 +172,64 @@ export default function ChatPage() {
         deletedByUserId: msg.deletedByUserId,
         username: user?.username || 'Unknown User',
         userImage: user?.image || null,
-      };
-      return messageForUI;
+      } satisfies MessageForUI;
     });
   }, [rawMessages, rawUsers, currentEvent?.id]);
+
+  const messageById = useMemo(() => {
+    const map = new Map<string, MessageForUI>();
+    for (const m of combinedMessages) map.set(m.id, m);
+    return map;
+  }, [combinedMessages]);
+
+  const childrenByParentId = useMemo(() => {
+    const map = new Map<string, MessageForUI[]>();
+    for (const m of combinedMessages) {
+      if (!m.replyToMessageId) continue;
+      const arr = map.get(m.replyToMessageId) ?? [];
+      arr.push(m);
+      map.set(m.replyToMessageId, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    }
+    return map;
+  }, [combinedMessages]);
+
+  const topLevelMessages = useMemo(
+    () => combinedMessages.filter(m => !m.replyToMessageId),
+    [combinedMessages]
+  );
+
+  const replyCountByRootId = useMemo(() => {
+    const memo = new Map<string, number>();
+    const dfs = (id: string): number => {
+      const existing = memo.get(id);
+      if (existing !== undefined) return existing;
+      const kids = childrenByParentId.get(id) ?? [];
+      let count = kids.length;
+      for (const k of kids) count += dfs(k.id);
+      memo.set(id, count);
+      return count;
+    };
+    for (const root of topLevelMessages) dfs(root.id);
+    return memo;
+  }, [childrenByParentId, topLevelMessages]);
+
+  const [openThreadRootId, setOpenThreadRootId] = useState<string | null>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
+
+  const getRootId = useCallback((messageId: string) => {
+    let current = messageById.get(messageId);
+    const seen = new Set<string>();
+    while (current?.replyToMessageId && !seen.has(current.replyToMessageId)) {
+      seen.add(current.replyToMessageId);
+      const parent = messageById.get(current.replyToMessageId);
+      if (!parent) break;
+      current = parent;
+    }
+    return current?.id ?? messageId;
+  }, [messageById]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -185,77 +237,17 @@ export default function ChatPage() {
     }
   }, [combinedMessages]);
 
-  const handleFormatClick = useCallback((format: 'bold' | 'italic' | 'underline' | 'code' | 'list') => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = textarea.value.substring(start, end);
-    const prefix = textarea.value.substring(0, start);
-    const suffix = textarea.value.substring(end);
-    let newText = textarea.value;
-    let cursorPosition = start;
-
-    switch (format) {
-      case 'bold':
-        newText = `${prefix}**${selectedText}**${suffix}`;
-        cursorPosition = start + 2 + selectedText.length;
-        break;
-      case 'italic':
-        newText = `${prefix}*${selectedText}*${suffix}`;
-        cursorPosition = start + 1 + selectedText.length;
-        break;
-      case 'underline':
-        newText = `${prefix}<u>${selectedText}</u>${suffix}`;
-        cursorPosition = start + 3 + selectedText.length;
-        break;
-      case 'code':
-        // For inline code
-        newText = `${prefix}\`${selectedText}\`${suffix}`;
-        cursorPosition = start + 1 + selectedText.length;
-        break;
-      case 'list':
-        // Simple unordered list item
-        const lineStart = textarea.value.lastIndexOf('\n', start - 1) + 1;
-        if (start === lineStart) { // If at the start of a line
-          newText = `${prefix}- ${selectedText}${suffix}`;
-          cursorPosition = start + 2 + selectedText.length;
-        } else { // Insert on a new line
-          newText = `${prefix}\n- ${selectedText}${suffix}`;
-          cursorPosition = start + 3 + selectedText.length;
-        }
-        break;
-    }
-
-    setNewMessageText(newText);
-    requestAnimationFrame(() => {
-      textarea.selectionStart = textarea.selectionEnd = cursorPosition;
-    });
-  }, [setNewMessageText]);
+  useEffect(() => {
+    if (!openThreadRootId) return;
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [combinedMessages, openThreadRootId]);
 
   const handleEmojiSelect = useCallback((emojiObject: { emoji: string; label: string; }) => {
-    const emoji = emojiObject.emoji;
-    const textarea = textareaRef.current;
-    if (!textarea) return;
+    composerRef.current?.insertText(emojiObject.emoji);
+  }, []);
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const prefix = textarea.value.substring(0, start);
-    const suffix = textarea.value.substring(end);
-
-    const newText = `${prefix}${emoji}${suffix}`;
-    const newCursorPosition = start + emoji.length;
-
-    setNewMessageText(newText);
-    requestAnimationFrame(() => {
-      textarea.selectionStart = textarea.selectionEnd = newCursorPosition;
-    });
-  }, [setNewMessageText]);
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const textToSend = newMessageText.trim();
+  const handleSendMessage = async () => {
+    const textToSend = (composerRef.current?.getMarkdown() ?? composerMarkdown).trim();
     const eventIdToSend = currentEvent?.id;
 
     if (!z) {
@@ -284,7 +276,8 @@ export default function ChatPage() {
           addErrorMessage(`Local error sending message: ${err.message}`);
         });
 
-      setNewMessageText('');
+      composerRef.current?.clear();
+      setComposerMarkdown('');
       setReplyToId(null);
 
       await mutation.server
@@ -310,8 +303,9 @@ export default function ChatPage() {
 
   const handleReplyClick = (messageId: string, username: string) => {
     setReplyToId(messageId);
-    setNewMessageText(`@${username} `);
-    document.getElementById('messageInput')?.focus();
+    setOpenThreadRootId(getRootId(messageId));
+    composerRef.current?.focus();
+    composerRef.current?.insertText(`@${username} `);
   };
 
   const handleDelete = (messageId: string) => {
@@ -367,12 +361,13 @@ export default function ChatPage() {
       )}
       <div className="flex flex-col flex-1 max-w-2xl mx-auto w-full h-full">
         {/* Header */}
-        <header className="-mt-1 flex-shrink-0 border-reflect bg-transparent flex items-center justify-between p-4 pt-5 rounded-b-2xl backdrop-blur-md border-b border-muted/30">
+        <header className="-mt-1 shrink-0 border-reflect bg-transparent flex items-center justify-between p-3 pt-4 rounded-b-xl backdrop-blur-md border-b border-muted/30">
           <div className="grid auto-rows-min items-start gap-1">
-            {(isMessagesDataComplete && isUsersDataComplete) ? <h1 className="text-2xl line-clamp-1 font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
-              : <AnimatedShinyText className='text-2xl font-bold tracking-tight'> <span>{'Syncing'}</span></AnimatedShinyText>}
+            {(isMessagesDataComplete && isUsersDataComplete) ? <h1 className="text-xl line-clamp-1 font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
+              : <AnimatedShinyText className='text-xl font-bold tracking-tight'> <span>{'Syncing'}</span></AnimatedShinyText>}
           </div>
           <div className="flex items-center gap-2">
+            {isAdmin && <BlockedWordsAdminButton />}
             <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'success-2' : 'secondary'} className='small-caps'>
               {isMessagesDataComplete && isUsersDataComplete ? 'Synced' :
                 (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete') ? 'Error' : 'Syncing...'}
@@ -412,200 +407,170 @@ export default function ChatPage() {
               Error loading chat data: Data not complete or failed to load.&rdquo;
             </div>
           )}
-          {combinedMessages.length === 0 && !isInitialDataLoading && isMessagesDataComplete && isUsersDataComplete && (
+          {topLevelMessages.length === 0 && !isInitialDataLoading && isMessagesDataComplete && isUsersDataComplete && (
             <div className="text-center text-muted-foreground pt-10">
               No messages yet. Be the first to say something!
             </div>
           )}
-          {/* Render Grouped Messages */}
-          {combinedMessages.reduce<Array<Array<MessageForUI>>>((groups, message, index) => {
-            if (index === 0 || message.userId !== combinedMessages[index - 1].userId) {
-              groups.push([message]);
-            } else {
-              groups[groups.length - 1].push(message);
-            }
-            return groups;
-          }, []).map((messageGroup, groupIndex) => (
-            <div key={groupIndex} className="flex items-start gap-3 mb-4 last:mb-0">
-              {/* Avatar for the first message in the group */}
-              <Avatar className="size-9 shrink-0 mt-1">
-                {messageGroup[0].userImage ? (
-                  <img src={messageGroup[0].userImage} alt={messageGroup[0].username} className="object-cover w-full h-full rounded-full" />
-                ) : (
-                  <span className="flex items-center justify-center w-full h-full text-lg font-semibold bg-primary text-primary-foreground rounded-full">
-                    {messageGroup[0].username?.[0]?.toUpperCase() || '?'}
-                  </span>
-                )}
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                {/* Username and timestamp for the first message in the group */}
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-sm text-primary">{messageGroup[0].username}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {messageGroup[0].createdAt !== null ? new Date(messageGroup[0].createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                  </span>
-                </div>
-                {/* Render messages within the group */}
-                <div className="flex flex-col gap-0.5">
-                  {messageGroup.map((message, messageIndex) => (
-                    <ContextMenu
-                      key={message.id} // Key is important here for React
-                      onOpenChange={(isOpen) => {
-                        if (isOpen) setContextMenuMessageId(message.id);
-                        else setContextMenuMessageId(null);
-                      }}
-                    >
-                      <ContextMenuTrigger asChild>
-                        <div
-                          className={`px-2 py-px rounded-sm transition-colors hover:bg-secondary
-                            ${message.isDeleted ? 'opacity-50 italic bg-destructive/10 text-muted-foreground line-through' : ''}
-                            border border-muted/20
-                            ${contextMenuMessageId === message.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
-                          `}
-                        >
-                          {message.isDeleted ? (
-                            <span className="text-xs">[Message deleted]</span>
-                          ) : (
-                            <>
-                              {message.replyToMessageId && (
-                                <div className="my-1 text-xs text-muted-foreground border-l-2 border-muted pl-2">
-                                  Replying to: <span className="italic">{combinedMessages.find(m => m.id === message.replyToMessageId)?.text.substring(0, 30) || 'original message'}...</span>
-                                </div>
-                              )}
-                              <ReactMarkdown
-                                remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-                                components={{
-                                  p: ({ node, ...props }) => <p className="text-foreground break-words whitespace-pre-line markdown" {...props} />,
-                                  ul: ({ node, ...props }) => <ul className="list-disc list-inside ml-4" {...props} />,
-                                  ol: ({ node, ...props }) => <ol className="list-decimal list-inside ml-4" {...props} />,
-                                  li: ({ node, ...props }) => <li className="mb-0.5" {...props} />,
-                                  code: ({ node, className, children, ...props }) => (
-                                    <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm prose-code:before:hidden prose-code:after:hidden" {...props}>
-                                      {children}
-                                    </code>
-                                  ),
-                                  u: ({ node, children, ...props }) => <u className='underline' {...props}>{children}</u>
-                                }}
-                              >
-                                {message.text}
-                              </ReactMarkdown>
-                            </>
-                          )}
-                        </div>
-                      </ContextMenuTrigger>
-                      {!message.isDeleted && (
-                        <ContextMenuContent className="w-64">
-                          <ContextMenuItem className="px-2 text-xs text-muted-foreground">
-                            <SendHorizontalIcon />{message.createdAt ? new Date(message.createdAt).toLocaleString(undefined, {
-                              dateStyle: 'medium',
-                              timeStyle: 'medium'
-                            }) : 'N/A'}
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={() => handleReplyClick(message.id, message.username || 'User')}
-                          >
-                            <ReplyIcon />Reply
-                          </ContextMenuItem>
-                          {((session.user && (session.user as CustomUser).role === 'admin') || false) && !message.isDeleted && z && (
-                            <>
-                              <ContextMenuItem
-                                className="text-destructive"
-                                onClick={() => handleDelete(message.id)}
-                              >
-                                <Trash2Icon className='text-destructive' />Delete Message
-                              </ContextMenuItem>
-                            </>
-                          )}
-                        </ContextMenuContent>
+          {topLevelMessages.map((message) => {
+            const directReplies = childrenByParentId.get(message.id) ?? [];
+            const previewReplies = directReplies.slice(0, 2);
+            const totalReplies = replyCountByRootId.get(message.id) ?? 0;
+            const moreCount = Math.max(0, totalReplies - previewReplies.length);
+
+            return (
+              <div key={message.id} className="flex items-start gap-2 mb-2 last:mb-0">
+                <Avatar className="size-8 shrink-0 mt-1">
+                  {message.userImage ? (
+                    <img src={message.userImage} alt={message.username} className="object-cover w-full h-full rounded-full" />
+                  ) : (
+                    <span className="flex items-center justify-center w-full h-full text-lg font-semibold bg-primary text-primary-foreground rounded-full">
+                      {message.username?.[0]?.toUpperCase() || '?'}
+                    </span>
+                  )}
+                </Avatar>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-sm text-primary">{message.username}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {message.createdAt !== null ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                  </div>
+
+                  <ContextMenu
+                    onOpenChange={(isOpen) => {
+                      if (isOpen) setContextMenuMessageId(message.id);
+                      else setContextMenuMessageId(null);
+                    }}
+                  >
+                    <ContextMenuTrigger asChild>
+                      <div
+                        className={`px-2 py-px rounded-sm transition-colors hover:bg-secondary
+                          border border-muted/20
+                          ${contextMenuMessageId === message.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
+                        `}
+                      >
+                        <MarkdownRenderer markdown={message.text} />
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-64">
+                      <ContextMenuItem className="px-2 text-xs text-muted-foreground">
+                        <SendHorizontalIcon />{message.createdAt ? new Date(message.createdAt).toLocaleString(undefined, {
+                          dateStyle: 'medium',
+                          timeStyle: 'medium'
+                        }) : 'N/A'}
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleReplyClick(message.id, message.username || 'User')}>
+                        <ReplyIcon />Reply
+                      </ContextMenuItem>
+                      {((session.user && (session.user as CustomUser).role === 'admin') || false) && z && (
+                        <ContextMenuItem className="text-destructive" onClick={() => handleDelete(message.id)}>
+                          <Trash2Icon className='text-destructive' />Delete Message
+                        </ContextMenuItem>
                       )}
-                    </ContextMenu>
-                  ))}
+                    </ContextMenuContent>
+                  </ContextMenu>
+
+                  {totalReplies > 0 && (
+                    <div className="mt-2 ml-4 border-l border-muted/40 pl-3 space-y-1">
+                      {previewReplies.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="w-full text-left text-xs text-muted-foreground hover:text-foreground transition-colors line-clamp-1"
+                          onClick={() => setOpenThreadRootId(message.id)}
+                        >
+                          <span className="font-medium text-foreground/90">{r.username}:</span> {r.text}
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setOpenThreadRootId(message.id)}
+                        >
+                          View thread ({totalReplies} repl{totalReplies === 1 ? 'y' : 'ies'})
+                        </Button>
+                        {moreCount > 0 && (
+                          <span className="text-xs text-muted-foreground">+{moreCount} more</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
 
         {/* Floating Input Area and Reply Indicator */}
       </div>
-      <section className="flex-shrink-0 w-full mx-auto p-2 pb-0 fixed bottom-0 ">
+      <section className="fixed inset-x-0 bottom-0 shrink-0 w-full mx-auto p-2 pb-0">
         {replyToId && (
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-7 w-full md:max-w-md sm:max-w-sm max-w-3/4 p-2 text-sm bg-card/80 text-foreground border border-muted/30 rounded-t-md flex justify-between items-center">
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-7 w-full md:max-w-md sm:max-w-sm max-w-[75%] p-2 text-sm bg-card/80 text-foreground border border-muted/30 rounded-t-md flex justify-between items-center">
             <div className='flex-center-2'>
               <ReplyIcon className="w-4 h-4" /> <span className="font-medium italic">{combinedMessages.find(m => m.id === replyToId)?.text.substring(0, 20) || '...'}</span>
             </div>
             <Button variant="ghost" size="sm" onClick={() => setReplyToId(null)} className="p-1 h-auto text-xs"><XIcon className="w-4 h-4" /></Button>
           </div>
         )}
-        <div className="flex border-reflect relative rounded-t-lg p-1 pb-0 backdrop-blur-lg flex-col top-0 shadow-lg border border-muted/30 lg:w-1/2 2xl:w-xl mx-auto w-full md:w-2/3 sm:w-3/4 translate-y-1">
+        <div className="flex border-reflect relative rounded-t-lg p-1 pb-0 backdrop-blur-lg flex-col top-0 shadow-lg border border-muted/30 mx-auto w-full max-w-3xl translate-y-1">
           <div className="flex relative p-1 items-start gap-2">
-            <Textarea
-              id="messageInput"
-              ref={textareaRef}
-              value={newMessageText}
-              onChange={(e) => setNewMessageText(e.target.value)}
+            <ChatComposerEditor
+              ref={composerRef}
               placeholder="Type your message here..."
-              className="flex-1 !bg-transparent no-scrollbar focus-visible:ring-0 focus-visible:ring-offset-0 border-none shadow-none resize-none text-base py-2 h-12"
-              disabled={isSending || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
-              autoComplete="off"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage(e as React.FormEvent);
-                }
+              className="flex-1 min-w-0"
+              disabled={
+                isSending ||
+                !currentEvent?.id ||
+                !isZeroClientAvailable ||
+                ((!isMessagesDataComplete || !isUsersDataComplete) && combinedMessages.length > 0)
+              }
+              onMarkdownChange={setComposerMarkdown}
+              onSubmit={() => {
+                void handleSendMessage();
               }}
             />
             <aside className='flex gap-1.5'>
               <Emojis onEmojiSelectAction={handleEmojiSelect} />
+              {composerMarkdown.trim() && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md-icon"
+                  onClick={() => setIsPreviewDialogOpen(true)}
+                  className="shrink-0 grid place-items-center"
+                >
+                  <span className="text-xs">Preview</span>
+                </Button>
+              )}
               <Button
-                type="submit"
-                disabled={isSending || !newMessageText.trim() || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
+                type="button"
+                onClick={() => {
+                  void handleSendMessage();
+                }}
+                disabled={
+                  isSending ||
+                  !composerMarkdown.trim() ||
+                  !currentEvent?.id ||
+                  !isZeroClientAvailable ||
+                  ((!isMessagesDataComplete || !isUsersDataComplete) && combinedMessages.length > 0)
+                }
                 size="md-icon"
                 variant={'outline'}
-                className="flex-shrink-0 grid place-items-center"
+                className="shrink-0 grid place-items-center"
               >
-                {isSending && newMessageText.trim() ? (
+                {isSending && composerMarkdown.trim() ? (
                   <LoaderCircleIcon className="animate-spin h-4 w-4" />
                 ) : (
                   <SendHorizontalIcon className="h-4 w-4" />
                 )}
               </Button>
             </aside>
-          </div>
-
-          {/* Formatting, Emoji, and Preview Row */}
-          <div className="flex items-center justify-between mb-2 px-1">
-            <div className="flex items-center gap-1">
-              <ToggleGroup type="multiple" size="sm" className="gap-1">
-                <ToggleGroupItem value="bold" aria-label="Toggle bold" onClick={() => handleFormatClick('bold')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Bold className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="italic" aria-label="Toggle italic" onClick={() => handleFormatClick('italic')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Italic className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="underline" aria-label="Toggle underline" onClick={() => handleFormatClick('underline')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Underline className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="code" aria-label="Toggle code" onClick={() => handleFormatClick('code')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Code className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="list" aria-label="Toggle list" onClick={() => handleFormatClick('list')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <List className="h-4 w-4" />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-            {newMessageText.trim() && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsPreviewDialogOpen(true)}
-                className="text-xs px-2"
-              >
-                Preview
-              </Button>
-            )}
           </div>
         </div>
       </section>
@@ -643,28 +608,84 @@ export default function ChatPage() {
             <DialogTitle>Markdown Preview</DialogTitle>
             <DialogDescription>How your message will look.</DialogDescription>
           </DialogHeader>
-          <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-              components={{
-                p: ({ node, ...props }) => <p className="text-foreground break-words whitespace-pre-line" {...props} />,
-                ul: ({ node, ...props }) => <ul className="list-disc list-inside" {...props} />,
-                ol: ({ node, ...props }) => <ol className="list-decimal list-inside" {...props} />,
-                li: ({ node, ...props }) => <li {...props} />,
-                code: ({ node, className, children, ...props }) => {
-                  const CodeWrapper = 'code';
-                  const codeClasses = "relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm prose-code:before:hidden prose-code:after:hidden"
+          <MarkdownRenderer
+            markdown={composerMarkdown}
+            className="max-h-[60vh] overflow-y-auto pr-2"
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Thread Dialog */}
+      <Dialog
+        open={openThreadRootId !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setOpenThreadRootId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Thread</DialogTitle>
+            <DialogDescription>Replies in this thread.</DialogDescription>
+          </DialogHeader>
+          {openThreadRootId && (
+            <div className="max-h-[65vh] overflow-y-auto pr-2 space-y-3">
+              {(() => {
+                const root = messageById.get(openThreadRootId);
+                if (!root) return <div className="text-sm text-muted-foreground">Loading thread…</div>;
+
+                const renderNode = (node: MessageForUI, depth: number): ReactElement => {
+                  const kids = childrenByParentId.get(node.id) ?? [];
                   return (
-                    <CodeWrapper className={codeClasses}>
-                      {children}
-                    </CodeWrapper>
+                    <div key={node.id} style={{ paddingLeft: depth * 14 }}>
+                      <div className="flex items-start gap-2">
+                        <Avatar className="size-7 shrink-0 mt-1">
+                          {node.userImage ? (
+                            <img src={node.userImage} alt={node.username} className="object-cover w-full h-full rounded-full" />
+                          ) : (
+                            <span className="flex items-center justify-center w-full h-full text-xs font-semibold bg-primary text-primary-foreground rounded-full">
+                              {node.username?.[0]?.toUpperCase() || '?'}
+                            </span>
+                          )}
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-primary">{node.username}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {node.createdAt !== null ? new Date(node.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                          </div>
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              <div className="mt-1 rounded border border-muted/20 px-2 py-1 hover:bg-secondary transition-colors">
+                                <MarkdownRenderer markdown={node.text} />
+                              </div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-56">
+                              <ContextMenuItem onClick={() => handleReplyClick(node.id, node.username || 'User')}>
+                                <ReplyIcon />Reply
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        </div>
+                      </div>
+                      {kids.length > 0 && (
+                        <div className="mt-2 space-y-3">
+                          {kids.map(k => renderNode(k, depth + 1))}
+                        </div>
+                      )}
+                    </div>
                   );
-                },
-              }}
-            >
-              {newMessageText}
-            </ReactMarkdown>
-          </div>
+                };
+
+                return (
+                  <>
+                    {renderNode(root, 0)}
+                    <div ref={threadEndRef} />
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

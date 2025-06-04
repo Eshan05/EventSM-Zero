@@ -4,7 +4,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { ActiveParticipant, BannedParticipant, CategorizedParticipants, MutedParticipant } from "@/types/participants";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -45,14 +45,13 @@ export function ParticipantsDialog({
       .finally(() => setIsLoading(false));
   }, [eventId]);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchParticipants();
-    }
-  }, [isOpen, fetchParticipants]);
+  const handleOpenChange = (nextOpen: boolean) => {
+    onOpenChange(nextOpen);
+    if (nextOpen) fetchParticipants();
+  };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Event Participants</DialogTitle>

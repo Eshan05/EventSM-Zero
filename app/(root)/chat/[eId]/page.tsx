@@ -14,26 +14,54 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import {
+  Credenza,
+  CredenzaContent,
+  CredenzaDescription,
+  CredenzaFooter,
+  CredenzaHeader,
+  CredenzaTitle,
+  CredenzaTrigger,
+  CredenzaBody,
+} from "@/components/ui/credenza";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LiaUsersSolid } from "react-icons/lia";
 import { BiUserVoice } from "react-icons/bi";
 import Emojis from '@/components/ui/emoji';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { ChatComposerEditor, type ChatComposerHandle } from '@/components/chat/chat-composer-editor';
 import { CustomUser } from '@/lib/auth';
 import { useZero } from '@/lib/zero/zero';
 import { ActiveParticipant, BannedParticipant, CategorizedParticipants, MutedParticipant } from '@/types/participants';
 import { useQuery } from '@rocicorp/zero/react';
 import { formatDistanceToNow } from 'date-fns';
-import { BanIcon, Bold, ClockIcon, Code, Italic, List, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, TimerIcon, Trash2Icon, Underline, UserIcon, XIcon } from 'lucide-react';
+import { BanIcon, ClockIcon, EyeIcon, LoaderCircleIcon, MicOffIcon, ReplyIcon, SendHorizontalIcon, TimerIcon, Trash2Icon, UserIcon, XIcon } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import type { ReactElement } from 'react';
+import { MarkdownRenderer } from '@/components/markdown/markdown-renderer';
 import { toast } from 'sonner';
+import { BlockedWordsAdminButton } from '@/components/chat/blocked-words-admin';
+import { useIsMobile } from '@/hooks/use-mobile';
+import Link from 'next/link';
+import { MenuIcon, MoreVerticalIcon } from 'lucide-react';
 
 interface ChatEvent {
   id: string;
@@ -56,7 +84,7 @@ interface RawZeroMessage {
 interface RawZeroUser {
   id: string;
   username: string;
-  role: string | null;
+  role: 'user' | 'admin' | null;
   image: string | null;
 }
 
@@ -69,12 +97,13 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   const { eId } = use(params);
   const { data: session, status: authStatus } = useSession();
   const z = useZero();
+  const isMobile = useIsMobile();
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<ChatComposerHandle>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [currentEvent, setCurrentEvent] = useState<ChatEvent | null>(null);
-  const [newMessageText, setNewMessageText] = useState('');
+  const [composerMarkdown, setComposerMarkdown] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [errorMessages, setErrorMessages] = useState<string[]>([]);
@@ -238,9 +267,9 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     }
   }, [authStatus, eId, addErrorMessage]);
 
-  // It returns a readonly tuple: readonly [T[], QueryResultDetails]
-  // We destructure it into const variables.
-  const [rawMessages, messagesResultDetails] = useQuery(z?.query.messages.orderBy('createdAt', 'asc'));
+  const [rawMessages, messagesResultDetails] = useQuery(
+    z?.query.messages.where('eventId', '=', eId).orderBy('createdAt', 'asc')
+  );
   const [rawUsers, usersResultDetails] = useQuery(z?.query.users.orderBy('username', 'asc'));
   const [participantsStatus, participantsResultDetails] = useQuery(
     z?.query.eventParticipants.where('eventId', '=', eId)
@@ -370,26 +399,24 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
   }, [currentEvent?.id, rawMessages, rawUsers]);
 
   const combinedMessages = useMemo((): readonly MessageForUI[] => { // Return readonly array
-    if (!currentEvent?.id || !rawMessages || !rawUsers) {
-      return [];
-    }
+    if (!currentEvent?.id || !rawMessages || !rawUsers) return [];
 
-    const messagesForCurrentEvent = rawMessages
-      .filter((msg) => msg.eventId === currentEvent.id && !msg.isDeleted && msg.userId !== null);
-    // .sort((a, b) => a.createdAt - b.createdAt); // Already sorted by query
+    const messagesForCurrentEvent = rawMessages.filter(
+      (msg): msg is typeof msg & { id: string; userId: string } =>
+        msg.eventId === currentEvent.id && !msg.isDeleted && typeof msg.id === 'string' && typeof msg.userId === 'string'
+    );
 
     const usersMap = new Map<string, RawZeroUser>(
       rawUsers
-        .filter((user) => typeof user.id === 'string' && user.id !== null)
+        .filter((user): user is RawZeroUser & { id: string } => typeof user.id === 'string')
         .map(user => [user.id, user] as [string, RawZeroUser])
     );
 
     return messagesForCurrentEvent.map((msg) => {
-      const user = usersMap.get(msg.userId as string);
-      const messageForUI: MessageForUI = {
-        // @ts-expect-error FML
+      const user = usersMap.get(msg.userId);
+      return {
         id: msg.id,
-        userId: msg.userId === null ? 'unknown' : msg.userId,
+        userId: msg.userId,
         eventId: msg.eventId,
         text: msg.text,
         replyToMessageId: msg.replyToMessageId,
@@ -399,10 +426,64 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
         deletedByUserId: msg.deletedByUserId,
         username: user?.username || 'Unknown User',
         userImage: user?.image || null,
-      };
-      return messageForUI;
+      } satisfies MessageForUI;
     });
   }, [rawMessages, rawUsers, currentEvent?.id]);
+
+  const messageById = useMemo(() => {
+    const map = new Map<string, MessageForUI>();
+    for (const m of combinedMessages) map.set(m.id, m);
+    return map;
+  }, [combinedMessages]);
+
+  const childrenByParentId = useMemo(() => {
+    const map = new Map<string, MessageForUI[]>();
+    for (const m of combinedMessages) {
+      if (!m.replyToMessageId) continue;
+      const arr = map.get(m.replyToMessageId) ?? [];
+      arr.push(m);
+      map.set(m.replyToMessageId, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    }
+    return map;
+  }, [combinedMessages]);
+
+  const topLevelMessages = useMemo(
+    () => combinedMessages.filter(m => !m.replyToMessageId),
+    [combinedMessages]
+  );
+
+  const replyCountByRootId = useMemo(() => {
+    const memo = new Map<string, number>();
+    const dfs = (id: string): number => {
+      const existing = memo.get(id);
+      if (existing !== undefined) return existing;
+      const kids = childrenByParentId.get(id) ?? [];
+      let count = kids.length;
+      for (const k of kids) count += dfs(k.id);
+      memo.set(id, count);
+      return count;
+    };
+    for (const root of topLevelMessages) dfs(root.id);
+    return memo;
+  }, [childrenByParentId, topLevelMessages]);
+
+  const [openThreadRootId, setOpenThreadRootId] = useState<string | null>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
+
+  const getRootId = useCallback((messageId: string) => {
+    let current = messageById.get(messageId);
+    const seen = new Set<string>();
+    while (current?.replyToMessageId && !seen.has(current.replyToMessageId)) {
+      seen.add(current.replyToMessageId);
+      const parent = messageById.get(current.replyToMessageId);
+      if (!parent) break;
+      current = parent;
+    }
+    return current?.id ?? messageId;
+  }, [messageById]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -410,146 +491,10 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
     }
   }, [combinedMessages]);
 
-  const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
-
-  const getDelimiters = (format: string) => {
-    switch (format) {
-      case 'bold': return { start: '**', end: '**' };
-      case 'italic': return { start: '*', end: '*' };
-      case 'underline': return { start: '<u>', end: '</u>' };
-      case 'code': return { start: '`', end: '`' };
-      case 'list': return { start: '- ', end: '' };
-      default: return { start: '', end: '' };
-    }
-  };
-
-  const detectActiveFormats = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return new Set<string>();
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = textarea.value.substring(start, end);
-    const active = new Set<string>();
-
-    // Check each format
-    ['bold', 'italic', 'underline', 'code', 'list'].forEach(format => {
-      const delimiters = getDelimiters(format);
-
-      if (selectedText) {
-        // Check if selected text has formatting
-        if (selectedText.startsWith(delimiters.start) && selectedText.endsWith(delimiters.end)) {
-          active.add(format);
-        }
-      } else {
-        // Check if cursor is between delimiters
-        const textBefore = textarea.value.substring(0, start);
-        const textAfter = textarea.value.substring(start);
-        if (textBefore.endsWith(delimiters.start) && textAfter.startsWith(delimiters.end)) {
-          active.add(format);
-        }
-      }
-    });
-
-    return active;
-  }, []);
-
-  const handleFormatClick = useCallback((format: 'bold' | 'italic' | 'underline' | 'code' | 'list') => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = textarea.value.substring(start, end);
-    const prefix = textarea.value.substring(0, start);
-    const suffix = textarea.value.substring(end);
-    let newText = textarea.value;
-    let cursorPosition = start;
-
-    // Check if we're toggling off an existing format
-    const currentActiveFormats = detectActiveFormats();
-    const isActive = currentActiveFormats.has(format);
-
-    if (isActive) {
-      // Remove formatting
-      const delimiters = getDelimiters(format);
-
-      if (selectedText && selectedText.startsWith(delimiters.start) && selectedText.endsWith(delimiters.end)) {
-        // Remove formatting from selected text
-        const innerText = selectedText.slice(delimiters.start.length, -delimiters.end.length);
-        newText = `${prefix}${innerText}${suffix}`;
-        cursorPosition = start + innerText.length;
-      } else if (!selectedText) {
-        // Look for delimiters around cursor position
-        const textBefore = textarea.value.substring(0, start);
-        const textAfter = textarea.value.substring(start);
-
-        // Check if cursor is between delimiters
-        if (textBefore.endsWith(delimiters.start) && textAfter.startsWith(delimiters.end)) {
-          newText = textBefore.slice(0, -delimiters.start.length) + textAfter.slice(delimiters.end.length);
-          cursorPosition = start - delimiters.start.length;
-        } else {
-          // No formatting found, add it
-          newText = `${prefix}${delimiters.start}${delimiters.end}${suffix}`;
-          cursorPosition = start + delimiters.start.length;
-        }
-      } else {
-        // Selected text doesn't have formatting, add it
-        newText = `${prefix}${delimiters.start}${selectedText}${delimiters.end}${suffix}`;
-        cursorPosition = start + delimiters.start.length + selectedText.length + delimiters.end.length;
-      }
-    } else {
-      // Add formatting
-      const delimiters = getDelimiters(format);
-
-      if (selectedText) {
-        // Wrap selected text
-        newText = `${prefix}${delimiters.start}${selectedText}${delimiters.end}${suffix}`;
-        cursorPosition = start + delimiters.start.length + selectedText.length + delimiters.end.length;
-      } else {
-        // Insert delimiters with cursor in between
-        newText = `${prefix}${delimiters.start}${delimiters.end}${suffix}`;
-        cursorPosition = start + delimiters.start.length;
-      }
-    }
-
-    setNewMessageText(newText);
-
-    // Update active formats state
-    setActiveFormats(prev => {
-      const newSet = new Set(prev);
-      if (isActive) {
-        newSet.delete(format);
-      } else {
-        newSet.add(format);
-      }
-      return newSet;
-    });
-
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.selectionStart = textarea.selectionEnd = cursorPosition;
-    });
-  }, [setNewMessageText, detectActiveFormats]);
-
   useEffect(() => {
-    const updateActiveFormats = () => {
-      setActiveFormats(detectActiveFormats());
-    };
-
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.addEventListener('selectionchange', updateActiveFormats);
-      textarea.addEventListener('input', updateActiveFormats);
-      textarea.addEventListener('keyup', updateActiveFormats);
-
-      return () => {
-        textarea.removeEventListener('selectionchange', updateActiveFormats);
-        textarea.removeEventListener('input', updateActiveFormats);
-        textarea.removeEventListener('keyup', updateActiveFormats);
-      };
-    }
-  }, [detectActiveFormats]);
+    if (!openThreadRootId) return;
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [combinedMessages, openThreadRootId]);
 
   const handleMuteClick = (userId: string, username: string) => {
     if (!userId) {
@@ -571,31 +516,15 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
 
 
   const handleEmojiSelect = useCallback((emojiObject: { emoji: string; label: string; }) => {
-    const emoji = emojiObject.emoji;
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const prefix = textarea.value.substring(0, start);
-    const suffix = textarea.value.substring(end);
-
-    const newText = `${prefix}${emoji}${suffix}`;
-    const newCursorPosition = start + emoji.length;
-
-    setNewMessageText(newText);
-    requestAnimationFrame(() => {
-      textarea.selectionStart = textarea.selectionEnd = newCursorPosition;
-    });
-  }, [setNewMessageText]);
+    composerRef.current?.insertText(emojiObject.emoji);
+  }, []);
 
   const handleOpenParticipantDialog = () => {
     setIsUserListDialogOpen(true);
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const textToSend = newMessageText.trim();
+  const handleSendMessage = async () => {
+    const textToSend = (composerRef.current?.getMarkdown() ?? composerMarkdown).trim();
     const eventIdToSend = currentEvent?.id;
 
     if (!z) {
@@ -624,9 +553,9 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
           addErrorMessage(`Local error sending message: ${err.message}`);
         });
 
-      setNewMessageText('');
+      composerRef.current?.clear();
+      setComposerMarkdown('');
       setReplyToId(null);
-      setActiveFormats(new Set()); // Reset active formats
 
       await mutation.server
         .then(() => {
@@ -668,8 +597,9 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
 
   const handleReplyClick = (messageId: string, username: string) => {
     setReplyToId(messageId);
-    setNewMessageText(`@${username} `);
-    document.getElementById('messageInput')?.focus();
+    setOpenThreadRootId(getRootId(messageId));
+    composerRef.current?.clear();
+    composerRef.current?.insertText(`@${username} `);
   };
 
   const handleDelete = (messageId: string) => {
@@ -732,447 +662,585 @@ export default function ChatPage({ params }: { params: Promise<{ eId: string }> 
           ))}
         </div>
       )}
-      <div className="flex flex-col flex-1 max-w-2xl mx-auto w-full h-full">
+      <div className={`flex flex-col flex-1 ${isMobile ? 'max-w-full' : 'max-w-2xl'} mx-auto w-full h-full`}>
         {/* Header */}
-        <header className="-mt-1 flex-shrink-0 border-reflect bg-transparent flex items-center justify-between p-4 pt-5 rounded-b-2xl backdrop-blur-md border-b border-muted/30">
-          <div className="grid auto-rows-min items-start gap-1">
-            {(isMessagesDataComplete && isUsersDataComplete) ? <h1 className="text-2xl line-clamp-1 font-bold tracking-tight">{currentEvent?.name || 'Loading Event...'}</h1>
-              : <AnimatedShinyText className='text-2xl font-bold tracking-tight'> <span>{'Syncing'}</span></AnimatedShinyText>}
+        <header className="-mt-1 shrink-0 border-reflect bg-background/60 flex items-center justify-between py-1 px-4 rounded-b-xl backdrop-blur-md border-b border-muted/20 z-20 sticky top-0">
+          <div className="flex flex-col min-w-0">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href="/events" className="text-xs font-semibold opacity-70">Events</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage className="text-sm font-bold truncate max-w-[150px]">
+                    {isMessagesDataComplete && isUsersDataComplete ? currentEvent?.name : 'Syncing...'}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
           </div>
-          <div className="flex items-center gap-2">
-            {isAdmin && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <TimerIcon className={`h-5 w-5 ${eventSlowMode > 0 ? 'text-yellow-500' : ''}`} />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56">
-                  <div className="space-y-2">
-                    <h4 className="font-medium">Event Slow Mode</h4>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[0, 5, 15, 30, 60, 300].map(sec => (
-                        <Button key={sec} variant={eventSlowMode === sec ? 'default' : 'outline'} size="sm" onClick={() => handleSetEventSlowMode(sec)}>
-                          {sec === 0 ? 'Off' : `${sec}s`}
-                        </Button>
-                      ))}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {!isMobile && isAdmin && (
+              <div className="flex items-center gap-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="md-icon">
+                      <TimerIcon className={`size-4 ${eventSlowMode > 0 ? 'text-yellow-500' : ''}`} />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-2">
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium px-2">Event Slow Mode</h4>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[0, 5, 15, 30, 60, 300].map(sec => (
+                          <Button key={sec} variant={eventSlowMode === sec ? 'default' : 'outline'} size="sm" className="h-7 text-xs" onClick={() => handleSetEventSlowMode(sec)}>
+                            {sec === 0 ? 'Off' : `${sec}s`}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            )}
-            <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'success-2' : 'secondary'} className='small-caps'>
-              {isMessagesDataComplete && isUsersDataComplete ? 'Synced' :
-                (messagesResultDetails?.type !== 'complete' || usersResultDetails?.type !== 'complete') ? 'Error' : 'Syncing...'}
-            </Badge>
-            {/* Avatar Group and User List Dialog Trigger */}
-            {activeUsers.length > 0 && (
-              <div
-                className="flex -space-x-4 overflow-hidden cursor-pointer"
-                onClick={handleOpenParticipantDialog}
-                title={`View ${activeUsers.length} active user(s)`}
-              >
-                {activeUsers.slice(0, 3).map(user => (
-                  <Avatar key={user.id} className="size-8 border-2 border-background">
-                    {user.image ? (
-                      <img src={user.image} alt={user.username || 'User'} className="object-cover w-full h-full rounded-full" />
-                    ) : (
-                      <span className="flex items-center justify-center w-full h-full text-sm font-semibold bg-primary text-primary-foreground rounded-full">
-                        {user.username?.[0]?.toUpperCase() || '?'}
-                      </span>
-                    )}
-                  </Avatar>
-                ))}
-                {activeUsers.length > 3 && (
-                  <div className="size-8 bg-muted-foreground text-muted flex items-center justify-center rounded-full border-2 border-background text-xs font-medium">
-                    +{activeUsers.length - 3}
-                  </div>
-                )}
+                  </PopoverContent>
+                </Popover>
+                <BlockedWordsAdminButton />
               </div>
             )}
 
+            <div className="flex items-center gap-2">
+              <Badge variant={isMessagesDataComplete && isUsersDataComplete ? 'success-2' : 'secondary'} className="text-tiny h-5 px-1.5 font-medium">
+                {isMessagesDataComplete && isUsersDataComplete ? 'Live' : 'Syncing'}
+              </Badge>
+
+              {/* Avatar Group */}
+              {activeUsers.length > 0 && (
+                <div
+                  className="flex -space-x-3 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={handleOpenParticipantDialog}
+                >
+                  {activeUsers.slice(0, 3).map(user => (
+                    <Avatar key={user.id} className="size-7 border-2 border-background ring-1 ring-muted/20">
+                      {user.image ? (
+                        <img src={user.image} alt={user.username || 'User'} className="object-cover w-full h-full rounded-full" />
+                      ) : (
+                        <span className="flex items-center justify-center w-full h-full text-[10px] font-bold bg-primary text-primary-foreground rounded-full">
+                          {user.username?.[0]?.toUpperCase() || '?'}
+                        </span>
+                      )}
+                    </Avatar>
+                  ))}
+                  {activeUsers.length > 3 && (
+                    <div className="size-7 bg-muted text-muted-foreground flex items-center justify-center rounded-full border-2 border-background text-[10px] font-bold">
+                      +{activeUsers.length - 3}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isMobile && isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="size-8">
+                      <MoreVerticalIcon className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Admin Tools</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <TimerIcon className="size-4 mr-2" />
+                      <span>Slow Mode</span>
+                      <div className="ml-auto flex gap-1">
+                        {[0, 5, 15].map(sec => (
+                          <Button
+                            key={sec}
+                            variant={eventSlowMode === sec ? 'default' : 'outline'}
+                            size="sm"
+                            className="h-6 w-8 p-0 text-[10px]"
+                            onClick={() => handleSetEventSlowMode(sec)}
+                          >
+                            {sec}s
+                          </Button>
+                        ))}
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      {/* We need to trigger the BlockedWordsAdminButton logic here, or just render it as an item. 
+                          The button itself is a component, so we can't easily nest it perfectly without refactoring it.
+                          But let's keep it simple for now. */}
+                      <div className="p-0">
+                        <BlockedWordsAdminButton />
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           </div>
         </header>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 pb-28 space-y-4 no-scrollbar scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+        <div className={`flex-1 overflow-y-auto ${isMobile ? 'p-2' : 'p-4'} pb-28 ${isMobile ? 'space-y-2' : 'space-y-4'} no-scrollbar scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent`}>
           {(!isMessagesDataComplete || !isUsersDataComplete) && (
             <div className="text-center text-destructive-foreground bg-destructive/80 p-3 rounded-md">
               Error loading chat data: Data not complete or failed to load.&rdquo;
             </div>
           )}
-          {combinedMessages.length === 0 && !isInitialDataLoading && isMessagesDataComplete && isUsersDataComplete && (
+          {topLevelMessages.length === 0 && !isInitialDataLoading && isMessagesDataComplete && isUsersDataComplete && (
             <div className="text-center text-muted-foreground pt-10">
               No messages yet. Be the first to say something!
             </div>
           )}
-          {combinedMessages.reduce<Array<Array<MessageForUI>>>((groups, message, index) => {
-            if (index === 0 || message.userId !== combinedMessages[index - 1].userId) {
-              groups.push([message]);
-            } else {
-              groups[groups.length - 1].push(message);
-            }
-            return groups;
-          }, []).map((messageGroup, groupIndex) => (
-            <div key={groupIndex} className="flex items-start gap-3 mb-4 last:mb-0">
-              <Avatar className="size-9 shrink-0 mt-1">
-                {messageGroup[0].userImage ? (
-                  <img src={messageGroup[0].userImage} alt={messageGroup[0].username} className="object-cover w-full h-full rounded-full" />
-                ) : (
-                  <span className="flex items-center justify-center w-full h-full text-lg font-semibold bg-primary text-primary-foreground rounded-full">
-                    {messageGroup[0].username?.[0]?.toUpperCase() || '?'}
-                  </span>
-                )}
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-sm text-primary">{messageGroup[0].username}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {messageGroup[0].createdAt !== null ? new Date(messageGroup[0].createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  {messageGroup.map((message, messageIndex) => (
-                    <ContextMenu
-                      key={message.id}
-                      onOpenChange={(isOpen) => {
-                        if (isOpen) setContextMenuMessageId(message.id);
-                        else setContextMenuMessageId(null);
-                      }}
-                    >
-                      <ContextMenuTrigger asChild>
-                        <div
-                          className={`px-2 py-px rounded-sm transition-colors hover:bg-secondary
-                            ${message.isDeleted ? 'opacity-50 italic bg-destructive/10 text-muted-foreground line-through' : ''}
-                            border border-muted/20
-                            ${contextMenuMessageId === message.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
-                          `}
+          {topLevelMessages.map((message) => {
+            const directReplies = childrenByParentId.get(message.id) ?? [];
+            const previewReplies = directReplies.slice(0, 2);
+            const totalReplies = replyCountByRootId.get(message.id) ?? 0;
+            const moreCount = Math.max(0, totalReplies - previewReplies.length);
+
+            return (
+              <div key={message.id} className="flex items-start gap-2 mb-1 last:mb-0 group">
+                <Avatar className={`${isMobile ? 'size-7' : 'size-8'} shrink-0 mt-0.5`}>
+                  {message.userImage ? (
+                    <img src={message.userImage} alt={message.username} className="object-cover w-full h-full rounded-full" />
+                  ) : (
+                    <span className={`flex items-center justify-center w-full h-full ${isMobile ? 'text-sm' : 'text-lg'} font-semibold bg-primary text-primary-foreground rounded-full`}>
+                      {message.username?.[0]?.toUpperCase() || '?'}
+                    </span>
+                  )}
+                </Avatar>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-semibold text-xs text-primary/90">{message.username}</span>
+                    <span className="text-tiny text-muted-foreground opacity-70">
+                      {message.createdAt !== null ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                  </div>
+
+                  <ContextMenu
+                    onOpenChange={(isOpen) => {
+                      if (isOpen) setContextMenuMessageId(message.id);
+                      else setContextMenuMessageId(null);
+                    }}
+                  >
+                    <ContextMenuTrigger asChild>
+                      <div
+                        className={`px-2 py-0.5 rounded-md transition-all
+                          ${message.isDeleted ? 'opacity-50 italic bg-destructive/5 text-muted-foreground line-through' : 'bg-secondary/30 border border-muted/10'}
+                          group-hover:border-muted/30 group-hover:bg-secondary/40
+                          ${contextMenuMessageId === message.id ? 'ring-2 ring-primary/30 bg-secondary/50 border-primary/20' : ''}
+                        `}
+                      >
+                        {message.isDeleted ? (
+                          <span className="text-xs">[Message deleted]</span>
+                        ) : (
+                          <div className="text-sm prose-sm dark:prose-invert max-w-none">
+                            <MarkdownRenderer markdown={message.text} />
+                          </div>
+                        )}
+                      </div>
+                    </ContextMenuTrigger>
+
+                    {!message.isDeleted && (
+                      <ContextMenuContent className="w-56">
+                        <ContextMenuItem className="px-2 text-tiny text-muted-foreground">
+                          <ClockIcon className="size-3 mr-2" />
+                          {message.createdAt ? new Date(message.createdAt).toLocaleString(undefined, {
+                            dateStyle: 'medium',
+                            timeStyle: 'medium'
+                          }) : 'N/A'}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem onClick={() => handleReplyClick(message.id, message.username || 'User')}>
+                          <ReplyIcon className="size-4" />Reply
+                        </ContextMenuItem>
+                        {isAdmin && !message.isDeleted && z && (
+                          <>
+                            <ContextMenuSeparator />
+                            <ContextMenuLabel className="text-tiny font-medium opacity-50">Admin Actions</ContextMenuLabel>
+                            <ContextMenuItem
+                              className="text-yellow-500 focus:text-yellow-600 focus:bg-yellow-500/10"
+                              onSelect={() => handleMuteClick(message.userId!, message.username)}
+                            >
+                              <MicOffIcon className="size-4" />
+                              <span>Mute User</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              className="text-blue-500 focus:text-blue-600 focus:bg-blue-500/10"
+                              onSelect={() => openUserSlowModeDialog(message.userId!, message.username)}
+                            >
+                              <TimerIcon className="size-4" />
+                              <span>Set Slow Mode</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                              onSelect={() => handleBanClick(message.userId!, message.username)}
+                            >
+                              <BanIcon className="size-4" />
+                              <span>Ban User</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                              onSelect={() => handleDelete(message.id)}
+                            >
+                              <Trash2Icon className="size-4" />
+                              <span>Delete Message</span>
+                            </ContextMenuItem>
+                          </>
+                        )}
+                      </ContextMenuContent>
+                    )}
+                  </ContextMenu>
+
+                  {totalReplies > 0 && (
+                    <div className="mt-1 ml-3 border-l-2 border-muted/20 pl-2 space-y-0.5">
+                      {previewReplies.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="w-full text-left text-[11px] text-muted-foreground hover:text-foreground transition-colors line-clamp-1"
+                          onClick={() => setOpenThreadRootId(message.id)}
                         >
-                          {message.isDeleted ? (
-                            <span className="text-xs">[Message deleted]</span>
-                          ) : (
-                            <>
-                              {message.replyToMessageId && (
-                                <div className="my-1 text-xs text-muted-foreground border-l-2 border-muted pl-2">
-                                  Replying to: <span className="italic">{combinedMessages.find(m => m.id === message.replyToMessageId)?.text.substring(0, 30) || 'original message'}...</span>
-                                </div>
-                              )}
-                              <ReactMarkdown
-                                remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-                                components={{
-                                  p: ({ node, ...props }) => <p className="text-foreground break-words whitespace-pre-line markdown" {...props} />,
-                                  ul: ({ node, ...props }) => <ul className="list-disc list-inside ml-4" {...props} />,
-                                  ol: ({ node, ...props }) => <ol className="list-decimal list-inside ml-4" {...props} />,
-                                  li: ({ node, ...props }) => <li className="mb-0.5" {...props} />,
-                                  code: ({ node, className, children, ...props }) => (
-                                    <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm prose-code:before:hidden prose-code:after:hidden" {...props}>
-                                      {children}
-                                    </code>
-                                  ),
-                                  u: ({ node, children, ...props }) => <u className='underline' {...props}>{children}</u>
-                                }}
-                              >
-                                {message.text}
-                              </ReactMarkdown>
-                            </>
-                          )}
-                        </div>
-                      </ContextMenuTrigger>
-                      {!message.isDeleted && (
-                        <ContextMenuContent className="w-64">
-                          <ContextMenuItem className="px-2 text-xs text-muted-foreground">
-                            <SendHorizontalIcon />{message.createdAt ? new Date(message.createdAt).toLocaleString(undefined, {
-                              dateStyle: 'medium',
-                              timeStyle: 'medium'
-                            }) : 'N/A'}
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={() => handleReplyClick(message.id, message.username || 'User')}
-                          >
-                            <ReplyIcon />Reply
-                          </ContextMenuItem>
-                          {((session.user && (session.user as CustomUser).role === 'admin') || false) && !message.isDeleted && z && (
-                            <>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                className="text-yellow-500 focus:text-yellow-600 focus:bg-yellow-500/10"
-                                onSelect={() => handleMuteClick(message.userId!, message.username)}
-                              >
-                                <MicOffIcon />
-                                <span>Mute User</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                className="text-blue-500 focus:text-blue-600 focus:bg-blue-500/10"
-                                onSelect={() => openUserSlowModeDialog(message.userId!, message.username)}
-                              >
-                                <TimerIcon />
-                                <span>Set Slow Mode</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                                onSelect={() => handleBanClick(message.userId!, message.username)}
-                              >
-                                <BanIcon />
-                                <span>Ban User</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                                onSelect={() => handleDelete(message.id)}
-                              >
-                                <Trash2Icon />
-                                <span>Delete Message</span>
-                              </ContextMenuItem>
-                            </>
-                          )}
-                        </ContextMenuContent>
-                      )}
-                    </ContextMenu>
-                  ))}
+                          <span className="font-bold text-foreground/80">{r.username}:</span> {r.text}
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-tiny font-bold text-primary hover:bg-primary/10"
+                          onClick={() => setOpenThreadRootId(message.id)}
+                        >
+                          {totalReplies} repl{totalReplies === 1 ? 'y' : 'ies'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Floating Input Area and Reply Indicator */}
-        <Dialog open={isMuteDialogOpen} onOpenChange={setIsMuteDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Mute {userToMute?.username || 'User'}</DialogTitle>
-              <DialogDescription>
+        {/* Dialogs */}
+        <Credenza open={isMuteDialogOpen} onOpenChange={setIsMuteDialogOpen}>
+          <CredenzaContent>
+            <CredenzaHeader>
+              <CredenzaTitle>Mute {userToMute?.username || 'User'}</CredenzaTitle>
+              <CredenzaDescription>
                 Select a duration to prevent this user from sending messages in this event.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
+              </CredenzaDescription>
+            </CredenzaHeader>
+            <CredenzaBody className="grid grid-cols-2 gap-2 py-4">
               <Button variant="outline" onClick={() => handleMuteConfirm(60)}>1 Minute</Button>
               <Button variant="outline" onClick={() => handleMuteConfirm(300)}>5 Minutes</Button>
               <Button variant="outline" onClick={() => handleMuteConfirm(900)}>15 Minutes</Button>
               <Button variant="outline" onClick={() => handleMuteConfirm(3600)}>1 Hour</Button>
               <Button variant="destructive" className="col-span-2" onClick={() => handleMuteConfirm(86400)}>24 Hours</Button>
-            </div>
-            <DialogFooter>
+            </CredenzaBody>
+            <CredenzaFooter>
               <Button variant="ghost" onClick={() => setIsMuteDialogOpen(false)}>Cancel</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog open={isBanDialogOpen} onOpenChange={setIsBanDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Ban {userToBan?.username || 'User'}</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to ban this user? They will be unable to send or see messages in this event. This can be undone from the admin panel.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="sm:justify-end gap-2">
-              <Button variant="ghost" onClick={() => setIsBanDialogOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleBanConfirm}>Confirm Ban</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog open={isUserListDialogOpen} onOpenChange={setIsUserListDialogOpen}>
-          <DialogContent className="sm:max-w-lg max-h-[80vh] rounded overflow-scroll no-scrollbar">
-            <DialogHeader>
-              <DialogTitle>Event Participants</DialogTitle>
-              <DialogDescription>
+            </CredenzaFooter>
+          </CredenzaContent>
+        </Credenza>
+
+        <Credenza open={isBanDialogOpen} onOpenChange={setIsBanDialogOpen}>
+          <CredenzaContent>
+            <CredenzaHeader>
+              <CredenzaTitle>Ban {userToBan?.username || 'User'}</CredenzaTitle>
+              <CredenzaDescription>
+                Are you sure you want to ban this user? They will be unable to send or see messages.
+              </CredenzaDescription>
+            </CredenzaHeader>
+            <CredenzaFooter className="flex gap-2">
+              <Button variant="ghost" className="flex-1" onClick={() => setIsBanDialogOpen(false)}>Cancel</Button>
+              <Button variant="destructive" className="flex-1" onClick={handleBanConfirm}>Confirm Ban</Button>
+            </CredenzaFooter>
+          </CredenzaContent>
+        </Credenza>
+
+        <Credenza open={isUserListDialogOpen} onOpenChange={setIsUserListDialogOpen}>
+          <CredenzaContent className="max-h-[85vh]">
+            <CredenzaHeader>
+              <CredenzaTitle>Event Participants</CredenzaTitle>
+              <CredenzaDescription>
                 {isAdmin ? 'Manage and view all participants.' : 'Users currently active in this chat.'}
-              </DialogDescription>
-            </DialogHeader>
-            {isAdmin ? (
-              <Tabs defaultValue="all" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 items-center">
-                  <TabsTrigger value="all"><LiaUsersSolid />
-                    <Badge
-                      variant='outline'
-                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
-                    >{categorizedParticipants.all.length ?? 0}</Badge></TabsTrigger>
-                  <TabsTrigger value="active" className='relative'><BiUserVoice />
-                    <Badge
-                      variant='success-2'
-                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
-                    >{categorizedParticipants?.active.length ?? 0}
-                    </Badge></TabsTrigger>
-                  <TabsTrigger value="muted"><MicOffIcon />
-                    <Badge
-                      variant='yellow'
-                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
-                    >{categorizedParticipants?.muted.length ?? 0}</Badge></TabsTrigger>
-                  <TabsTrigger value="banned"><BanIcon />
-                    <Badge
-                      variant='destructive-2'
-                      className='rounded-full font-normal text-tiny px-1.5 aspect-square no-scrollbar'
-                    >{categorizedParticipants?.banned.length ?? 0}</Badge></TabsTrigger>
-                </TabsList>
-                {isParticipantListLoading ? <LinesLoader /> : (
-                  <>
-                    <TabsContent value="all" className="max-h-96 overflow-y-auto">
-                      <ParticipantList users={categorizedParticipants.all ?? []} onMute={onMute} onBan={onBan} onSetSlowMode={openUserSlowModeDialog} />
-                    </TabsContent>
-                    <TabsContent value="active" className="max-h-96 overflow-y-auto">
-                      <ParticipantList users={categorizedParticipants.active ?? []} onMute={onMute} onBan={onBan} onSetSlowMode={openUserSlowModeDialog} />
-                    </TabsContent>
-                    <TabsContent value="muted" className="max-h-96 overflow-y-auto">
-                      <MutedList users={categorizedParticipants?.muted ?? []} onUnmute={onUnmute} onMute={onMute} />
-                    </TabsContent>
-                    <TabsContent value="banned" className="max-h-96 overflow-y-auto">
-                      <BannedList users={categorizedParticipants?.banned ?? []} onUnban={onUnban} />
-                    </TabsContent>
-                  </>
-                )}
-              </Tabs>
-            ) : (
-              <div className="max-h-96 overflow-y-auto">
-                <ParticipantList users={activeUsers} />
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+              </CredenzaDescription>
+            </CredenzaHeader>
+            <CredenzaBody className="no-scrollbar overflow-y-auto">
+              {isAdmin ? (
+                <Tabs defaultValue="all" className="w-full">
+                  <TabsList className="grid w-full grid-cols-4 items-center mb-4 h-9">
+                    <TabsTrigger value="all" className="gap-1.5 focus-visible:ring-0">
+                      <LiaUsersSolid className="size-4" />
+                      <Badge variant='outline' className='rounded-full h-4 min-w-4 p-0 flex items-center justify-center text-tiny'>{categorizedParticipants.all.length}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="active" className="gap-1.5 focus-visible:ring-0">
+                      <BiUserVoice className="size-4" />
+                      <Badge variant='success-2' className='rounded-full h-4 min-w-4 p-0 flex items-center justify-center text-tiny'>{categorizedParticipants.active.length}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="muted" className="gap-1.5 focus-visible:ring-0">
+                      <MicOffIcon className="size-4" />
+                      <Badge variant='yellow' className='rounded-full h-4 min-w-4 p-0 flex items-center justify-center text-tiny'>{categorizedParticipants.muted.length}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="banned" className="gap-1.5 focus-visible:ring-0">
+                      <BanIcon className="size-4" />
+                      <Badge variant='destructive-2' className='rounded-full h-4 min-w-4 p-0 flex items-center justify-center text-tiny'>{categorizedParticipants.banned.length}</Badge>
+                    </TabsTrigger>
+                  </TabsList>
+                  {isParticipantListLoading ? <LinesLoader /> : (
+                    <div className="max-h-[50vh] overflow-y-auto pr-1 no-scrollbar">
+                      <TabsContent value="all" className="mt-0">
+                        <ParticipantList users={categorizedParticipants.all ?? []} onMute={onMute} onBan={onBan} onSetSlowMode={openUserSlowModeDialog} />
+                      </TabsContent>
+                      <TabsContent value="active" className="mt-0">
+                        <ParticipantList users={categorizedParticipants.active ?? []} onMute={onMute} onBan={onBan} onSetSlowMode={openUserSlowModeDialog} />
+                      </TabsContent>
+                      <TabsContent value="muted" className="mt-0">
+                        <MutedList users={categorizedParticipants?.muted ?? []} onUnmute={onUnmute} onMute={onMute} />
+                      </TabsContent>
+                      <TabsContent value="banned" className="mt-0">
+                        <BannedList users={categorizedParticipants?.banned ?? []} onUnban={onUnban} />
+                      </TabsContent>
+                    </div>
+                  )}
+                </Tabs>
+              ) : (
+                <div className="max-h-[60vh] overflow-y-auto">
+                  <ParticipantList users={activeUsers} />
+                </div>
+              )}
+            </CredenzaBody>
+            <CredenzaFooter>
+              <Button variant="outline" className="w-full" onClick={() => setIsUserListDialogOpen(false)}>Close</Button>
+            </CredenzaFooter>
+          </CredenzaContent>
+        </Credenza>
       </div>
-      <section className="flex-shrink-0 w-full mx-auto p-2 pb-0 fixed bottom-0 ">
+      <section className={`fixed inset-x-0 bottom-0 shrink-0 w-full mx-auto ${isMobile ? 'p-1 pb-1' : 'p-2'}`}>
         {replyToId && (
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-7 w-full md:max-w-md sm:max-w-sm max-w-3/4 p-2 text-sm bg-card/80 text-foreground border border-muted/30 rounded-t-md flex justify-between items-center">
-            <div className='flex-center-2'>
-              <ReplyIcon className="w-4 h-4" /> <span className="font-medium italic">{combinedMessages.find(m => m.id === replyToId)?.text.substring(0, 20) || '...'}</span>
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-7 w-full md:max-w-md sm:max-w-sm max-w-[90%] p-1 px-3 text-[11px] bg-background/90 backdrop-blur-md text-foreground border border-muted/20 border-b-0 rounded-t-lg flex justify-between items-center z-10">
+            <div className='flex items-center gap-2 overflow-hidden'>
+              <ReplyIcon className="size-3 shrink-0 text-primary" />
+              <span className="font-bold opacity-60">Replying to:</span>
+              <span className="font-medium italic truncate">{combinedMessages.find(m => m.id === replyToId)?.text || '...'}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setReplyToId(null)} className="p-1 h-auto text-xs"><XIcon className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={() => setReplyToId(null)} className="size-5 hover:bg-destructive/10 hover:text-destructive"><XIcon className="size-3" /></Button>
           </div>
         )}
-        <div className="flex border-reflect relative rounded-t-lg p-1 pb-0 backdrop-blur-lg flex-col top-0 shadow-lg border border-muted/30 lg:w-1/2 2xl:w-xl mx-auto w-full md:w-2/3 sm:w-3/4 translate-y-1">
-          <div className="flex relative p-1 items-start gap-2">
-            <Textarea
-              id="messageInput"
-              ref={textareaRef}
-              value={newMessageText}
-              onChange={(e) => setNewMessageText(e.target.value)}
-              placeholder="Type your message here..."
-              className="flex-1 !bg-transparent no-scrollbar focus-visible:ring-0 focus-visible:ring-offset-0 border-none shadow-none resize-none text-base py-2 h-12"
+        <div className="flex border-reflect relative rounded-xl p-1 backdrop-blur-xl bg-background/60 shadow-2xl border border-muted/20 mx-auto w-full max-w-3xl -mb-4 lg:-mb-5 overflow-hidden">
+          <div className="flex relative p-1 items-start gap-1 flex-1">
+            <ChatComposerEditor
+              ref={composerRef}
+              placeholder="Message..."
               disabled={isSending || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
-              autoComplete="off"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage(e as React.FormEvent);
-                }
-              }}
+              onMarkdownChange={setComposerMarkdown}
+              onSubmit={() => void handleSendMessage()}
+              className="flex-1 min-w-0 bg-transparent! no-scrollbar focus-visible:ring-0 focus-visible:ring-offset-0 border-none shadow-none resize-none text-sm py-1.5 min-h-9"
             />
-            <aside className='flex gap-1.5'>
+            <div className='flex items-center self-end gap-1 mb-2 sticky right-0'>
+              <Button type='button' variant="ghost" size="icon" onClick={() => setIsPreviewDialogOpen(true)} className="size-8">
+                <EyeIcon className="size-4" />
+              </Button>
               <Emojis onEmojiSelectAction={handleEmojiSelect} />
               <Button
-                type="submit"
-                disabled={isSending || cooldownTime > 0 || !newMessageText.trim() || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
-                size="md-icon"
-                variant={'outline'}
-                className="flex-shrink-0 grid place-items-center"
+                type="button"
+                onClick={() => void handleSendMessage()}
+                disabled={isSending || cooldownTime > 0 || !composerMarkdown.trim() || !currentEvent?.id || !isZeroClientAvailable || (!isMessagesDataComplete || !isUsersDataComplete && combinedMessages.length > 0)}
+                size="icon"
+                variant={composerMarkdown.trim() ? 'default' : 'ghost'}
+                className={`size-8 shrink-0 transition-all ${composerMarkdown.trim() ? 'scale-100 opacity-100' : 'scale-90 opacity-50'}`}
               >
-                {isSending && newMessageText.trim() ? (
-                  <LoaderCircleIcon className="animate-spin h-4 w-4" />
+                {isSending && composerMarkdown.trim() ? (
+                  <LoaderCircleIcon className="animate-spin size-4" />
                 ) : cooldownTime > 0 ? (
-                  <span className="text-sm font-mono">{cooldownTime}</span>
+                  <span className="text-tiny font-bold font-mono">{cooldownTime}</span>
                 ) : (
-                  <SendHorizontalIcon className="h-4 w-4" />
+                  <SendHorizontalIcon className="size-4" />
                 )}
               </Button>
-            </aside>
-          </div>
-
-          {/* Formatting, Emoji, and Preview Row */}
-          <div className="flex items-center justify-between mb-2 px-1">
-            <div className="flex items-center gap-1">
-              <ToggleGroup type="multiple" size="sm" className="gap-1" value={Array.from(activeFormats)}>
-                <ToggleGroupItem value="bold" aria-label="Toggle bold" onClick={() => handleFormatClick('bold')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Bold className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="italic" aria-label="Toggle italic" onClick={() => handleFormatClick('italic')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Italic className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="underline" aria-label="Toggle underline" onClick={() => handleFormatClick('underline')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Underline className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="code" aria-label="Toggle code" onClick={() => handleFormatClick('code')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <Code className="h-4 w-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="list" aria-label="Toggle list" onClick={() => handleFormatClick('list')} className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground size-7 p-1">
-                  <List className="h-4 w-4" />
-                </ToggleGroupItem>
-              </ToggleGroup>
             </div>
-            {newMessageText.trim() && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsPreviewDialogOpen(true)}
-                className="text-xs px-2"
-              >
-                Preview
-              </Button>
-            )}
           </div>
         </div>
       </section>
 
-      {/* User List Dialog */}
-
-
       {/* Markdown Preview Dialog */}
-      <Dialog open={isPreviewDialogOpen} onOpenChange={setIsPreviewDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Markdown Preview</DialogTitle>
-            <DialogDescription>How your message will look.</DialogDescription>
-          </DialogHeader>
-          <div className="prose dark:prose-invert max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-              components={{
-                p: ({ node, ...props }) => <p className="text-foreground break-words whitespace-pre-line" {...props} />,
-                ul: ({ node, ...props }) => <ul className="list-disc list-inside" {...props} />,
-                ol: ({ node, ...props }) => <ol className="list-decimal list-inside" {...props} />,
-                li: ({ node, ...props }) => <li {...props} />,
-                code: ({ node, className, children, ...props }) => {
-                  const CodeWrapper = 'code';
-                  const codeClasses = "relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm prose-code:before:hidden prose-code:after:hidden"
-                  return (
-                    <CodeWrapper className={codeClasses}>
-                      {children}
-                    </CodeWrapper>
-                  );
-                },
-              }}
-            >
-              {newMessageText}
-            </ReactMarkdown>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Credenza open={isPreviewDialogOpen} onOpenChange={setIsPreviewDialogOpen}>
+        <CredenzaContent className="sm:max-w-md">
+          <CredenzaHeader>
+            <CredenzaTitle>Markdown Preview</CredenzaTitle>
+            <CredenzaDescription>How your message will look.</CredenzaDescription>
+          </CredenzaHeader>
+          <CredenzaBody className="max-h-[60vh] overflow-y-auto pr-2 pb-6">
+            <MarkdownRenderer
+              markdown={composerMarkdown}
+              className="prose-sm dark:prose-invert"
+            />
+          </CredenzaBody>
+        </CredenzaContent>
+      </Credenza>
 
-      <Dialog open={isSlowModeUserDialogOpen} onOpenChange={(isOpen) => {
+      {/* Thread Dialog */}
+      <Credenza
+        open={openThreadRootId !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setOpenThreadRootId(null);
+        }}
+      >
+        <CredenzaContent className="sm:max-w-2xl max-h-[90vh]">
+          <CredenzaHeader>
+            <CredenzaTitle>Thread</CredenzaTitle>
+            <CredenzaDescription>Replies in this thread.</CredenzaDescription>
+          </CredenzaHeader>
+          <CredenzaBody className="no-scrollbar overflow-y-auto">
+            {openThreadRootId && (
+              <div className="max-h-[70vh] overflow-y-auto pr-2 space-y-3 pb-4 no-scrollbar">
+                {(() => {
+                  const root = messageById.get(openThreadRootId);
+                  if (!root) return <div className="text-sm text-muted-foreground">Loading thread…</div>;
+
+                  const renderNode = (node: MessageForUI, depth: number): ReactElement => {
+                    const kids = childrenByParentId.get(node.id) ?? [];
+                    return (
+                      <div key={node.id} className={`${depth > 0 ? 'mt-2' : ''}`} style={{ paddingLeft: depth > 0 ? (isMobile ? 12 : 20) : 0 }}>
+                        <div className="flex items-start gap-2 group">
+                          <Avatar className={`${depth === 0 ? 'size-8' : 'size-6'} shrink-0 mt-0.5`}>
+                            {node.userImage ? (
+                              <img src={node.userImage} alt={node.username} className="object-cover w-full h-full rounded-full" />
+                            ) : (
+                              <span className={`flex items-center justify-center w-full h-full ${depth === 0 ? 'text-sm' : 'text-[10px]'} font-bold bg-primary text-primary-foreground rounded-full`}>
+                                {node.username?.[0]?.toUpperCase() || '?'}
+                              </span>
+                            )}
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-xs font-bold text-primary">{node.username}</span>
+                              <span className="text-[10px] text-muted-foreground opacity-60">
+                                {node.createdAt !== null ? new Date(node.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                            <ContextMenu
+                              onOpenChange={(isOpen) => {
+                                if (isOpen) setContextMenuMessageId(node.id);
+                                else setContextMenuMessageId(null);
+                              }}
+                            >
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  className={`rounded-md border border-muted/10 px-2 py-1 bg-secondary/20 hover:bg-secondary/30 transition-all text-sm
+                                      ${contextMenuMessageId === node.id ? 'ring-2 ring-primary/30 border-primary/20' : ''}
+                                    `}
+                                >
+                                  <MarkdownRenderer markdown={node.text} />
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56">
+                                <ContextMenuItem className="px-2 text-[10px] text-muted-foreground">
+                                  <ClockIcon className="size-3 mr-2" />
+                                  {node.createdAt ? new Date(node.createdAt).toLocaleString(undefined, {
+                                    dateStyle: 'medium',
+                                    timeStyle: 'medium'
+                                  }) : 'N/A'}
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem onClick={() => handleReplyClick(node.id, node.username || 'User')}>
+                                  <ReplyIcon className="size-3 mr-2" />Reply
+                                </ContextMenuItem>
+                                {isAdmin && z && (
+                                  <>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuLabel className="text-[10px] font-bold uppercase tracking-wider opacity-50">Admin Actions</ContextMenuLabel>
+                                    <ContextMenuItem
+                                      className="text-yellow-500 focus:text-yellow-600 focus:bg-yellow-500/10"
+                                      onSelect={() => handleMuteClick(node.userId!, node.username)}
+                                    >
+                                      <MicOffIcon className="size-4 mr-2" />
+                                      <span>Mute User</span>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      className="text-blue-500 focus:text-blue-600 focus:bg-blue-500/10"
+                                      onSelect={() => openUserSlowModeDialog(node.userId!, node.username)}
+                                    >
+                                      <TimerIcon className="size-4 mr-2" />
+                                      <span>Set Slow Mode</span>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                      onSelect={() => handleBanClick(node.userId!, node.username)}
+                                    >
+                                      <BanIcon className="size-4 mr-2" />
+                                      <span>Ban User</span>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                      onSelect={() => handleDelete(node.id)}
+                                    >
+                                      <Trash2Icon className="size-4 mr-2" />
+                                      <span>Delete Message</span>
+                                    </ContextMenuItem>
+                                  </>
+                                )}
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          </div>
+                        </div>
+                        {kids.length > 0 && (
+                          <div className={`mt-2 space-y-2 border-l-2 border-muted/10 ml-3`}>
+                            {kids.map((k) => renderNode(k, depth + 1))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <>
+                      {renderNode(root, 0)}
+                      <div ref={threadEndRef} />
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </CredenzaBody>
+          <CredenzaFooter>
+            <Button variant="outline" className="w-full" onClick={() => setOpenThreadRootId(null)}>Close Thread</Button>
+          </CredenzaFooter>
+        </CredenzaContent>
+      </Credenza>
+
+      <Credenza open={isSlowModeUserDialogOpen} onOpenChange={(isOpen) => {
         setIsSlowModeUserDialogOpen(isOpen);
         if (!isOpen) {
           setUserSlowModeSeconds('5'); // Reset to default on close
         }
       }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Set Custom Cooldown for {userForSlowMode?.username}</DialogTitle>
-            <DialogDescription>
-              Override the event-wide slow mode for this user. Enter 0 to remove their cooldown but still respect the event's slow mode.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
+        <CredenzaContent className="sm:max-w-sm">
+          <CredenzaHeader>
+            <CredenzaTitle className="text-sm">Slow Mode: {userForSlowMode?.username}</CredenzaTitle>
+            <CredenzaDescription className="text-xs">
+              Override event slow mode. 0 to remove.
+            </CredenzaDescription>
+          </CredenzaHeader>
+          <CredenzaBody className="py-2">
             <Input
               type="number"
               placeholder="Seconds (e.g., 5, 30, 60)"
               value={userSlowModeSeconds}
               onChange={(e) => setUserSlowModeSeconds(e.target.value)}
+              className="h-9"
             />
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsSlowModeUserDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSetUserSlowMode}>Set Cooldown</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </CredenzaBody>
+          <CredenzaFooter className="flex gap-2">
+            <Button variant="ghost" className="flex-1" onClick={() => setIsSlowModeUserDialogOpen(false)}>Cancel</Button>
+            <Button className="flex-1" onClick={handleSetUserSlowMode}>Set</Button>
+          </CredenzaFooter>
+        </CredenzaContent>
+      </Credenza>
     </div>
   );
 }
